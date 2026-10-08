@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>픽셀 몬스터 디펜스</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="app">
+    <header id="hud">
+      <div class="stat">❤️ 생명 <span id="lives">10</span></div>
+      <div class="stat">🌊 웨이브 <span id="wave">0</span></div>
+      <div class="stat">👾 남은 몬스터 <span id="enemies">0</span></div>
+      <div class="controls">
+        <button id="btnStart">웨이브 시작</button>
+        <button id="btnPause">일시정지</button>
+        <button id="btnSpeed">배속 x1</button>
+      </div>
+    </header>
+
+    <div id="stage">
+      <canvas id="game" width="640" height="480"></canvas>
+      <div id="overlay" class="hidden">
+        <div class="panel">
+          <h1 id="overlayTitle">패배!</h1>
+          <p id="overlayText">몬스터가 마을에 도착했어요.</p>
+          <button id="btnRestart">다시 시작</button>
+        </div>
+      </div>
+    </div>
+
+    <p id="hint">몬스터들이 길을 따라 마을로 걸어옵니다. 마을에 도착하면 생명이 1 줄어요. (1단계: 아직 타워는 없어요)</p>
+    <pre id="errlog" hidden></pre>
+  </div>
+
+  <script src="js/sprites.js"></script>
+  <script src="js/game.js"></script>
+</body>
+</html>
