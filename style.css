@@ -50,27 +50,75 @@ button {
 button:hover { background: #4e5f82; }
 button:disabled { opacity: .5; cursor: default; }
 
-#panel {
-  display: flex;
-  align-items: center;
-  gap: 12px;
+/* ---------- 타워 상점 ---------- */
+#shop {
   background: var(--panel);
   padding: 8px 14px;
   border-radius: 10px;
   margin-bottom: 8px;
-  font-size: 15px;
 }
-#towerIcon {
+#cards { display: flex; flex-wrap: wrap; gap: 8px; }
+.card {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  text-align: left;
+  border-radius: 10px;
+  min-width: 190px;
+}
+.card.selected { border-color: var(--accent); background: #4e5f82; box-shadow: 0 0 0 2px rgba(255, 213, 79, .35); }
+.card .icon {
+  width: 42px;
+  height: 42px;
+  image-rendering: pixelated;
+  background: #1b1f2a;
+  border-radius: 8px;
+}
+.card .cardText { font-size: 14px; line-height: 1.35; }
+.card .cost { color: var(--accent); font-weight: 700; }
+.card .cost.poor { color: #ff6b6b; }
+.badge {
+  display: inline-block;
+  font-size: 12px;
+  padding: 1px 6px;
+  border-radius: 6px;
+  background: #1b1f2a;
+  margin-left: 4px;
+}
+.badge.grass { color: #5ad66b; }
+.badge.fire { color: #ff7a2a; }
+.badge.water { color: #4fc3f7; }
+.typeChart { color: #aab; font-size: 13px; margin-top: 8px; }
+.typeChart b { color: var(--accent); }
+
+/* ---------- 고른 타워 정보 ---------- */
+#info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: #33405a;
+  border: 2px solid var(--accent);
+  padding: 8px 14px;
+  border-radius: 10px;
+  margin-bottom: 8px;
+  font-size: 14px;
+}
+#info.hidden { display: none; }
+#infoIcon {
   width: 48px;
   height: 48px;
   image-rendering: pixelated;
   background: #1b1f2a;
   border-radius: 8px;
-  border: 2px solid #5a6b8f;
 }
-.help { color: #aab; font-size: 13px; margin-top: 2px; }
-#towerCost { color: var(--accent); font-weight: 700; }
-#towerCost.poor { color: #ff6b6b; }
+#infoText { flex: 1; line-height: 1.4; }
+#infoText b { color: var(--accent); }
+.infoButtons { display: flex; gap: 8px; }
+#btnEvolve { background: #2e7d32; border-color: #5ad66b; }
+#btnEvolve:hover { background: #388e3c; }
+#btnSell { background: #7a3b3b; border-color: #c06060; }
+#btnSell:hover { background: #8e4747; }
 
 #stage { position: relative; width: 100%; }
 

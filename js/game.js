@@ -14,7 +14,7 @@
   const ROWS = 12;          // 세로 칸 수
   const START_LIVES = 10;   // 시작 생명
   const START_GOLD = 120;   // 시작 골드
-  const SELL_RATIO = 0.7;   // 타워를 팔면 가격의 70%를 돌려받음
+  const SELL_RATIO = 0.7;   // 타워를 팔면 지금까지 쓴 골드의 70%를 돌려받음
   const SPRITE_SCALE = 3;   // 12픽셀 그림을 3배로 키워 36픽셀로
   const SPAWN_GAP = 0.9;    // 몬스터가 나오는 간격(초)
   const BREAK_TIME = 3;     // 웨이브 사이 쉬는 시간(초)
@@ -30,7 +30,6 @@
     kills: document.getElementById('kills'),
     towers: document.getElementById('towers'),
     gold: document.getElementById('gold'),
-    towerCost: document.getElementById('towerCost'),
     btnStart: document.getElementById('btnStart'),
     btnPause: document.getElementById('btnPause'),
     btnSpeed: document.getElementById('btnSpeed'),
@@ -38,8 +37,27 @@
     overlay: document.getElementById('overlay'),
     overlayTitle: document.getElementById('overlayTitle'),
     overlayText: document.getElementById('overlayText'),
-    towerIcon: document.getElementById('towerIcon'),
+    cards: document.getElementById('cards'),
+    info: document.getElementById('info'),
+    infoIcon: document.getElementById('infoIcon'),
+    infoText: document.getElementById('infoText'),
+    btnEvolve: document.getElementById('btnEvolve'),
+    btnSell: document.getElementById('btnSell'),
   };
+
+  // ---------- 속성(타입) 상성: 불 > 풀 > 물 > 불 ----------
+  const ELEMENTS = {
+    grass: { label: '풀', emoji: '🌿', color: '#5ad66b' },
+    fire:  { label: '불', emoji: '🔥', color: '#ff7a2a' },
+    water: { label: '물', emoji: '💧', color: '#4fc3f7' },
+  };
+  const STRONG_AGAINST = { fire: 'grass', grass: 'water', water: 'fire' };
+  function typeMultiplier(attacker, defender) {
+    if (STRONG_AGAINST[attacker] === defender) return 1.5; // 효과가 굉장했다!
+    if (STRONG_AGAINST[defender] === attacker) return 0.6; // 효과가 별로다...
+    return 1;
+  }
+  const elementLabel = (el) => ELEMENTS[el].emoji + ELEMENTS[el].label;
 
   // ---------- 경로 ----------
   // 몬스터가 지나가는 길. (가로칸, 세로칸) 순서.
@@ -50,10 +68,8 @@
   const SPAWN_TILE = [0, 2];   // 동굴 위치
   const HOME_TILE = [15, 10];  // 마을 위치
 
-  // 칸 좌표 -> 픽셀 좌표(칸의 한가운데)
   const WAYPOINTS = PATH_TILES.map(([c, r]) => ({ x: c * TILE + TILE / 2, y: r * TILE + TILE / 2 }));
 
-  // 길에 해당하는 칸 모음 (그리기, 설치 금지 판단용)
   const pathTiles = new Set();
   for (let i = 0; i < PATH_TILES.length - 1; i++) {
     const [c1, r1] = PATH_TILES[i];
@@ -72,55 +88,66 @@
 
   // ---------- 몬스터(적) 종류 ----------
   const ENEMY_TYPES = {
-    mongle: { sprite: 'mongle', speed: 55, hp: 20, color: '#5ad66b', reward: 6 },  // 느리지만 튼튼
-    bulti:  { sprite: 'bulti',  speed: 90, hp: 12, color: '#ff7a2a', reward: 8 },  // 빠르지만 약함
+    mongle:   { sprite: 'mongle',   name: '몽글이', element: 'grass', speed: 55, hp: 20, reward: 6, color: '#5ad66b' }, // 느리지만 튼튼
+    bulti:    { sprite: 'bulti',    name: '불티',   element: 'fire',  speed: 90, hp: 12, reward: 8, color: '#ff7a2a' }, // 빠르지만 약함
+    mulkeong: { sprite: 'mulkeong', name: '물컹이', element: 'water', speed: 65, hp: 26, reward: 7, color: '#4fc3f7' }, // 중간 속도, 튼튼
   };
-  // 웨이브를 막아내면 받는 보너스 골드
-  const waveBonus = (n) => 20 + n * 5;
+  const waveBonus = (n) => 20 + n * 5; // 웨이브를 막아내면 받는 보너스 골드
 
-  // ---------- 타워(우리 편) 종류 ----------
+  // ---------- 타워 종류 (각각 3단계 진화) ----------
   const TOWER_TYPES = {
-    saessak: {
-      sprite: 'saessak', name: '새싹이',
-      cost: 50,          // 가격(골드)
-      range: 100,        // 사거리(픽셀) = 2.5칸
-      damage: 6,         // 씨앗 한 발 공격력
-      cooldown: 0.6,     // 발사 간격(초)
-      bulletSpeed: 280,  // 씨앗 속도
-      bulletColor: '#9be36b',
+    grass: {
+      element: 'grass', key: '1', desc: '골고루 쓸만한 씨앗 사수',
+      stages: [
+        { name: '새싹이', sprite: 'saessak',   cost: 50,  range: 100, damage: 6,  cooldown: 0.6,  bulletSpeed: 280, bulletColor: '#9be36b' },
+        { name: '잎사귀', sprite: 'ipsagwi',   cost: 60,  range: 110, damage: 10, cooldown: 0.55, bulletSpeed: 300, bulletColor: '#7fe36b' },
+        { name: '꽃나래', sprite: 'kkotnarae', cost: 100, range: 125, damage: 17, cooldown: 0.5,  bulletSpeed: 320, bulletColor: '#ff9ad5' },
+      ],
+    },
+    fire: {
+      element: 'fire', key: '2', desc: '가까운 적을 빠르게 연타',
+      stages: [
+        { name: '불씨',   sprite: 'bulssi',    cost: 70,  range: 80,  damage: 4,  cooldown: 0.3,  bulletSpeed: 320, bulletColor: '#ffb347' },
+        { name: '불꼬리', sprite: 'bulkkori',  cost: 80,  range: 90,  damage: 7,  cooldown: 0.27, bulletSpeed: 340, bulletColor: '#ff8c42' },
+        { name: '화르르', sprite: 'hwareureu', cost: 130, range: 100, damage: 12, cooldown: 0.24, bulletSpeed: 360, bulletColor: '#ff4d1f' },
+      ],
+    },
+    water: {
+      element: 'water', key: '3', desc: '멀리서 강하게 한 발',
+      stages: [
+        { name: '물방울', sprite: 'mulbangul', cost: 90,  range: 150, damage: 16, cooldown: 1.4, bulletSpeed: 240, bulletColor: '#5ec8ff' },
+        { name: '물결이', sprite: 'mulgyeori', cost: 100, range: 165, damage: 28, cooldown: 1.3, bulletSpeed: 260, bulletColor: '#5ec8ff' },
+        { name: '파도리', sprite: 'padori',    cost: 160, range: 180, damage: 48, cooldown: 1.2, bulletSpeed: 280, bulletColor: '#bfe9ff' },
+      ],
     },
   };
+  const TOWER_ORDER = ['grass', 'fire', 'water'];
 
   const spriteCache = {};
   for (const key of Object.keys(SPRITES)) spriteCache[key] = buildSprite(SPRITES[key], SPRITE_SCALE);
-
-  // 패널에 타워 얼굴 그려두기
-  {
-    const g = ui.towerIcon.getContext('2d');
-    g.imageSmoothingEnabled = false;
-    g.drawImage(spriteCache.saessak, 0, 0);
-  }
 
   // ---------- 적 ----------
   class Enemy {
     constructor(type, wave) {
       const def = ENEMY_TYPES[type];
       this.type = type;
+      this.element = def.element;
       this.speed = def.speed * (1 + (wave - 1) * 0.06);           // 웨이브가 오를수록 조금씩 빨라짐
       this.maxHp = Math.round(def.hp * (1 + (wave - 1) * 0.2));   // 체력도 조금씩 늘어남
       this.hp = this.maxHp;
       this.x = WAYPOINTS[0].x;
       this.y = WAYPOINTS[0].y;
-      this.wp = 1;            // 다음에 갈 지점 번호
-      this.dir = 1;           // 1이면 오른쪽 보기, -1이면 왼쪽 보기
-      this.reached = false;   // 마을에 도착했는지
-      this.dead = false;      // 쓰러졌는지
-      this.traveled = 0;      // 지금까지 걸어온 거리 (타워가 "가장 앞선 적"을 고를 때 씀)
-      this.t = Math.random() * 10; // 애니메이션용 시계
+      this.wp = 1;
+      this.dir = 1;
+      this.reached = false;
+      this.dead = false;
+      this.traveled = 0;
+      this.effectTimer = 0;   // "굉장!" 글씨가 너무 자주 뜨지 않게 하는 시계
+      this.t = Math.random() * 10;
     }
 
     update(dt) {
-      let remaining = this.speed * dt; // 이번 프레임에 갈 수 있는 거리
+      let remaining = this.speed * dt;
       const budget = remaining;
       while (remaining > 0 && this.wp < WAYPOINTS.length) {
         const target = WAYPOINTS[this.wp];
@@ -140,6 +167,7 @@
       }
       this.traveled += budget - remaining;
       if (this.wp >= WAYPOINTS.length) this.reached = true;
+      if (this.effectTimer > 0) this.effectTimer -= dt;
       this.t += dt;
     }
 
@@ -160,17 +188,22 @@
 
   // ---------- 타워 ----------
   class Tower {
-    constructor(c, r, type) {
+    constructor(c, r, typeKey) {
       this.c = c; this.r = r;
-      this.type = type;
-      this.def = TOWER_TYPES[type];
+      this.typeKey = typeKey;
+      this.element = TOWER_TYPES[typeKey].element;
+      this.stage = 0;                  // 0: 1단계, 1: 2단계, 2: 3단계(최종)
+      this.invested = this.def.cost;   // 지금까지 이 타워에 쓴 골드 (팔 때 기준)
       this.x = c * TILE + TILE / 2;
       this.y = r * TILE + TILE / 2;
-      this.cooldown = 0;   // 다음 발사까지 남은 시간
-      this.recoil = 0;     // 발사 직후 살짝 움찔하는 효과
+      this.cooldown = 0;
+      this.recoil = 0;
       this.dir = 1;
       this.target = null;
     }
+    get def() { return TOWER_TYPES[this.typeKey].stages[this.stage]; }
+    get isMax() { return this.stage >= TOWER_TYPES[this.typeKey].stages.length - 1; }
+    get nextStage() { return this.isMax ? null : TOWER_TYPES[this.typeKey].stages[this.stage + 1]; }
 
     update(dt) {
       this.cooldown -= dt;
@@ -195,12 +228,13 @@
     }
   }
 
-  // ---------- 씨앗(총알) ----------
+  // ---------- 씨앗/불꽃/물방울 (총알) ----------
   class Bullet {
     constructor(tower, target) {
       this.x = tower.x;
       this.y = tower.y - 8;
       this.target = target;
+      this.element = tower.element;
       this.speed = tower.def.bulletSpeed;
       this.damage = tower.def.damage;
       this.color = tower.def.bulletColor;
@@ -209,14 +243,19 @@
 
     update(dt) {
       const t = this.target;
-      if (t.dead || t.reached) { this.done = true; return; } // 목표가 사라지면 씨앗도 사라짐
+      if (t.dead || t.reached) { this.done = true; return; }
       const dx = t.x - this.x;
       const dy = t.y - this.y;
       const dist = Math.hypot(dx, dy);
       const step = this.speed * dt;
       if (dist <= step + 4) {
-        t.takeDamage(this.damage);
-        spawnParticles(t.x, t.y, this.color, 4, 60);
+        const mult = typeMultiplier(this.element, t.element);
+        t.takeDamage(Math.round(this.damage * mult));
+        spawnParticles(t.x, t.y, this.color, mult > 1 ? 7 : 4, mult > 1 ? 90 : 60);
+        if (mult !== 1 && t.effectTimer <= 0 && !t.dead) {
+          spawnFloater(t.x, t.y - 28, mult > 1 ? '굉장!' : '별로...', mult > 1 ? '#ffd54f' : '#b0bec5');
+          t.effectTimer = 0.7;
+        }
         this.done = true;
         return;
       }
@@ -225,7 +264,7 @@
     }
   }
 
-  // ---------- 떠오르는 숫자 ("+6" 같은 것) ----------
+  // ---------- 떠오르는 글씨 ("+6", "굉장!") ----------
   function spawnFloater(x, y, text, color) {
     state.floaters.push({ x, y, text, color, life: 0.9, maxLife: 0.9 });
   }
@@ -245,8 +284,10 @@
     const list = [];
     const count = 5 + n * 2;           // 1웨이브 7마리, 2웨이브 9마리 ...
     for (let i = 0; i < count; i++) {
-      const useBulti = n >= 3 && i % 3 === 2; // 3웨이브부터 불티가 섞여 나옴
-      list.push(useBulti ? 'bulti' : 'mongle');
+      let type = 'mongle';
+      if (n >= 3 && i % 3 === 2) type = 'bulti';      // 3웨이브부터 불티
+      if (n >= 4 && i % 4 === 1) type = 'mulkeong';   // 4웨이브부터 물컹이
+      list.push(type);
     }
     return list;
   }
@@ -260,9 +301,10 @@
     state.towers = [];
     state.bullets = [];
     state.particles = [];
-    state.floaters = [];      // "+6" 처럼 떠오르는 숫자들
+    state.floaters = [];
     state.kills = 0;
     state.gold = START_GOLD;
+    state.spawned = { mongle: 0, bulti: 0, mulkeong: 0 }; // 지금까지 나온 몬스터 수 (기록용)
     state.spawnQueue = [];
     state.spawnTimer = 0;
     state.started = false;
@@ -273,9 +315,10 @@
     state.gameOver = false;
     state.hitFlash = 0;
     state.time = 0;
-    state.hover = null;       // 마우스가 올라간 칸
-    state.selected = null;    // 클릭해서 고른 타워
-    state.notice = '';        // 화면 아래 짧은 안내 문구
+    state.hover = null;
+    state.selected = null;
+    state.shopType = state.shopType || 'grass'; // 상점에서 고른 타워 종류
+    state.notice = '';
     state.noticeTimer = 0;
   }
   resetState();
@@ -297,47 +340,70 @@
 
   function gameOver() {
     state.gameOver = true;
-    state.selected = null;
+    selectTower(null);
     ui.overlayTitle.textContent = '패배!';
     ui.overlayText.textContent = '몬스터가 마을에 도착했어요. ' + state.wave + '웨이브까지 버텼고, ' + state.kills + '마리를 물리쳤어요. (타워 ' + state.towers.length + '개, 남은 골드 ' + state.gold + ')';
     ui.overlay.classList.remove('hidden');
     updateHud();
   }
 
-  // ---------- 타워 설치 / 제거 ----------
+  // ---------- 타워 설치 / 진화 / 팔기 ----------
   function towerAt(c, r) {
     return state.towers.find((t) => t.c === c && t.r === r) || null;
   }
   function canPlace(c, r) {
     return inBoard(c, r) && !isPath(c, r) && !towerAt(c, r);
   }
-  function canAfford(type) {
-    return state.gold >= TOWER_TYPES[type].cost;
+  function buyCost(typeKey) {
+    return TOWER_TYPES[typeKey].stages[0].cost;
+  }
+  function canAfford(typeKey) {
+    return state.gold >= buyCost(typeKey);
   }
   function sellPrice(t) {
-    return Math.floor(t.def.cost * SELL_RATIO);
+    return Math.floor(t.invested * SELL_RATIO);
   }
-  function placeTower(c, r, type) {
+  function selectTower(t) {
+    state.selected = t;
+    refreshInfo(true);
+  }
+  function placeTower(c, r, typeKey) {
     if (!canPlace(c, r)) return null;
-    const def = TOWER_TYPES[type];
-    if (!canAfford(type)) {
+    const def = TOWER_TYPES[typeKey].stages[0];
+    if (!canAfford(typeKey)) {
       showNotice('골드가 부족해요 (' + def.name + ' ' + def.cost + '골드)');
       return null;
     }
     state.gold -= def.cost;
-    const t = new Tower(c, r, type);
+    const t = new Tower(c, r, typeKey);
     state.towers.push(t);
-    spawnParticles(t.x, t.y, '#7fe36b', 8, 70);
+    spawnParticles(t.x, t.y, ELEMENTS[t.element].color, 8, 70);
     spawnFloater(t.x, t.y - 20, '-' + def.cost, '#ff8a80');
     showNotice(def.name + '를 심었어요! (-' + def.cost + '골드)');
     updateHud();
     return t;
   }
+  function evolveTower(t) {
+    const next = t.nextStage;
+    if (!next) { showNotice(t.def.name + '는 이미 최종 진화예요'); return false; }
+    if (state.gold < next.cost) { showNotice('골드가 부족해요 (진화 ' + next.cost + '골드)'); return false; }
+    const before = t.def.name;
+    state.gold -= next.cost;
+    t.invested += next.cost;
+    t.stage += 1;
+    spawnParticles(t.x, t.y, '#ffffff', 16, 120);
+    spawnParticles(t.x, t.y, ELEMENTS[t.element].color, 10, 90);
+    spawnFloater(t.x, t.y - 24, '진화!', '#ffd54f');
+    showNotice(before + '가 ' + t.def.name + '로 진화했어요!', 2.5);
+    updateHud();
+    refreshInfo(true);
+    return true;
+  }
   function removeTower(t) {
     const refund = sellPrice(t);
     state.gold += refund;
     state.towers = state.towers.filter((x) => x !== t);
-    if (state.selected === t) state.selected = null;
+    if (state.selected === t) selectTower(null);
     spawnParticles(t.x, t.y, '#b07a3c', 6, 60);
     spawnFloater(t.x, t.y - 20, '+' + refund, '#ffd54f');
     showNotice('타워를 팔아서 ' + refund + '골드를 돌려받았어요');
@@ -350,15 +416,17 @@
     if (state.waveActive && state.spawnQueue.length > 0) {
       state.spawnTimer -= dt;
       if (state.spawnTimer <= 0) {
-        state.enemies.push(new Enemy(state.spawnQueue.shift(), state.wave));
+        const type = state.spawnQueue.shift();
+        state.enemies.push(new Enemy(type, state.wave));
+        state.spawned[type] += 1;
         state.spawnTimer = SPAWN_GAP;
       }
     }
 
-    // 2) 타워가 적을 고르고 씨앗 발사
+    // 2) 타워가 적을 고르고 발사
     for (const t of state.towers) t.update(dt);
 
-    // 3) 씨앗 날아가기 + 맞추기
+    // 3) 총알 날아가기 + 맞추기
     for (const b of state.bullets) b.update(dt);
     state.bullets = state.bullets.filter((b) => !b.done);
 
@@ -378,7 +446,7 @@
       }
     }
 
-    // 6) 웨이브가 끝나면 잠깐 쉬고 다음 웨이브
+    // 6) 웨이브가 끝나면 보너스 + 잠깐 쉬고 다음 웨이브
     if (state.waveActive && state.spawnQueue.length === 0 && state.enemies.length === 0) {
       state.waveActive = false;
       state.breakTimer = BREAK_TIME;
@@ -396,16 +464,16 @@
     updateHud();
   }
 
-  function updateParticles(dt) {
+  function updateEffects(dt) {
     for (const p of state.particles) {
       p.x += p.vx * dt;
       p.y += p.vy * dt;
-      p.vy += 220 * dt; // 중력처럼 아래로 떨어짐
+      p.vy += 220 * dt;
       p.life -= dt;
     }
     state.particles = state.particles.filter((p) => p.life > 0);
     for (const f of state.floaters) {
-      f.y -= 28 * dt; // 위로 천천히 떠오름
+      f.y -= 28 * dt;
       f.life -= dt;
     }
     state.floaters = state.floaters.filter((f) => f.life > 0);
@@ -501,7 +569,6 @@
     const bob = Math.round(Math.sin(e.t * 10) * 2);
     drawShadow(e.x, e.y);
     drawSprite(img, e.x, e.y + bob, e.dir);
-    // 체력 막대 (다친 적만)
     if (e.hp < e.maxHp) {
       const bx = Math.round(e.x - 13), by = Math.round(e.y - 24 + bob);
       ctx.fillStyle = '#1a1a1a';
@@ -518,6 +585,16 @@
     const hop = t.recoil > 0 ? -2 : 0;
     drawShadow(t.x, t.y);
     drawSprite(img, t.x, t.y + hop, t.dir);
+    // 진화 단계 표시 (작은 별)
+    if (t.stage > 0) {
+      ctx.fillStyle = '#ffd54f';
+      for (let i = 0; i < t.stage; i++) ctx.fillRect(Math.round(t.x + 12 - i * 5), Math.round(t.y - 20), 3, 3);
+    }
+    if (state.selected === t) {
+      ctx.strokeStyle = '#ffd54f';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(t.c * TILE + 2, t.r * TILE + 2, TILE - 4, TILE - 4);
+    }
   }
 
   function drawRange(x, y, range, ok) {
@@ -532,7 +609,7 @@
 
   function drawBullet(b) {
     const x = Math.round(b.x), y = Math.round(b.y);
-    ctx.fillStyle = '#1f4d2a';
+    ctx.fillStyle = b.element === 'fire' ? '#7a2200' : b.element === 'water' ? '#0d3b66' : '#1f4d2a';
     ctx.fillRect(x - 4, y - 4, 8, 8);
     ctx.fillStyle = b.color;
     ctx.fillRect(x - 2, y - 2, 4, 4);
@@ -562,7 +639,7 @@
 
   function drawMessage(text, sub) {
     ctx.fillStyle = 'rgba(0,0,0,0.55)';
-    ctx.fillRect(canvas.width / 2 - 170, 14, 340, sub ? 56 : 36);
+    ctx.fillRect(canvas.width / 2 - 190, 14, 380, sub ? 56 : 36);
     ctx.fillStyle = '#ffffff';
     ctx.textAlign = 'center';
     ctx.font = 'bold 18px sans-serif';
@@ -590,19 +667,17 @@
     drawCave();
     drawHouse();
 
-    // 사거리 표시: 고른 타워, 또는 설치 미리보기
+    const shopDef = TOWER_TYPES[state.shopType].stages[0];
     const hoverPlaceable = state.hover && !state.gameOver && canPlace(state.hover.c, state.hover.r);
-    const affordable = canAfford('saessak');
+    const affordable = canAfford(state.shopType);
     if (state.selected) drawRange(state.selected.x, state.selected.y, state.selected.def.range, true);
     if (hoverPlaceable) {
-      // 골드가 모자라면 빨간 원으로 보여줌
-      drawRange(state.hover.c * TILE + TILE / 2, state.hover.r * TILE + TILE / 2, TOWER_TYPES.saessak.range, affordable);
+      drawRange(state.hover.c * TILE + TILE / 2, state.hover.r * TILE + TILE / 2, shopDef.range, affordable);
     } else if (state.hover && !state.gameOver && !towerAt(state.hover.c, state.hover.r)) {
       ctx.fillStyle = 'rgba(255,60,60,0.35)';
       ctx.fillRect(state.hover.c * TILE, state.hover.r * TILE, TILE, TILE);
     }
 
-    // 타워와 몬스터를 함께 아래쪽부터 정렬해서 그리기 (아래에 있는 게 앞에 보이도록)
     const units = [];
     for (const t of state.towers) units.push({ y: t.y, draw: () => drawTower(t) });
     for (const e of state.enemies) units.push({ y: e.y, draw: () => drawEnemy(e) });
@@ -613,9 +688,8 @@
     drawParticles();
     drawFloaters();
 
-    // 설치 미리보기 그림(반투명). 골드가 모자라면 더 흐리게
     if (hoverPlaceable) {
-      drawSprite(spriteCache.saessak, state.hover.c * TILE + TILE / 2, state.hover.r * TILE + TILE / 2, 1, affordable ? 0.55 : 0.25);
+      drawSprite(spriteCache[shopDef.sprite], state.hover.c * TILE + TILE / 2, state.hover.r * TILE + TILE / 2, 1, affordable ? 0.55 : 0.25);
     }
 
     if (state.hitFlash > 0) {
@@ -624,7 +698,7 @@
     }
 
     if (!state.started) {
-      drawMessage('풀밭을 클릭해 새싹이를 심고, 웨이브 시작을 눌러주세요', '몬스터가 마을에 도착하면 생명이 줄어요');
+      drawMessage('타워를 고르고 풀밭을 클릭해 심은 뒤, 웨이브 시작!', '몬스터가 마을에 도착하면 생명이 줄어요');
     } else if (!state.waveActive && !state.gameOver) {
       drawMessage('다음 웨이브까지 ' + Math.ceil(state.breakTimer) + '초');
     } else if (state.paused) {
@@ -633,7 +707,7 @@
     drawNotice();
   }
 
-  // ---------- 화면 숫자 갱신 ----------
+  // ---------- 화면 숫자 / 상점 / 정보창 갱신 ----------
   function updateHud() {
     ui.lives.textContent = state.lives;
     ui.wave.textContent = state.wave;
@@ -641,12 +715,78 @@
     ui.kills.textContent = state.kills;
     ui.towers.textContent = state.towers.length;
     ui.gold.textContent = state.gold;
-    ui.towerCost.textContent = TOWER_TYPES.saessak.cost + '골드';
-    ui.towerCost.classList.toggle('poor', !canAfford('saessak'));
     ui.btnStart.textContent = state.started ? '다음 웨이브' : '웨이브 시작';
     ui.btnStart.disabled = state.waveActive || state.gameOver;
     ui.btnPause.textContent = state.paused ? '계속하기' : '일시정지';
     ui.btnSpeed.textContent = '배속 x' + state.speed;
+    refreshShop();
+    refreshInfo(false);
+  }
+
+  const cardEls = {};
+  function buildShop() {
+    ui.cards.innerHTML = '';
+    for (const key of TOWER_ORDER) {
+      const type = TOWER_TYPES[key];
+      const s0 = type.stages[0];
+      const btn = document.createElement('button');
+      btn.className = 'card';
+      btn.dataset.type = key;
+      const icon = document.createElement('canvas');
+      icon.className = 'icon';
+      icon.width = 36; icon.height = 36;
+      const g = icon.getContext('2d');
+      g.imageSmoothingEnabled = false;
+      g.drawImage(spriteCache[s0.sprite], 0, 0);
+      const text = document.createElement('div');
+      text.className = 'cardText';
+      text.innerHTML = '<b>' + s0.name + '</b><span class="badge ' + key + '">' + elementLabel(type.element) + '</span> <span class="key">[' + type.key + ']</span><br>'
+        + '<span class="cost">' + s0.cost + '골드</span> · ' + type.desc;
+      btn.appendChild(icon);
+      btn.appendChild(text);
+      btn.addEventListener('click', () => { state.shopType = key; refreshShop(); });
+      ui.cards.appendChild(btn);
+      cardEls[key] = btn;
+    }
+  }
+  function refreshShop() {
+    for (const key of TOWER_ORDER) {
+      const el = cardEls[key];
+      el.classList.toggle('selected', state.shopType === key);
+      el.querySelector('.cost').classList.toggle('poor', !canAfford(key));
+    }
+  }
+
+  let lastInfoKey = '';
+  function refreshInfo(force) {
+    const t = state.selected;
+    if (!t) {
+      if (force || lastInfoKey !== '') { ui.info.classList.add('hidden'); lastInfoKey = ''; }
+      return;
+    }
+    const key = t.c + ',' + t.r + ',' + t.stage + ',' + state.gold;
+    if (!force && key === lastInfoKey) return;
+    lastInfoKey = key;
+    ui.info.classList.remove('hidden');
+    const g = ui.infoIcon.getContext('2d');
+    g.imageSmoothingEnabled = false;
+    g.clearRect(0, 0, 36, 36);
+    g.drawImage(spriteCache[t.def.sprite], 0, 0);
+    const d = t.def;
+    let html = '<b>' + d.name + '</b> (' + (t.stage + 1) + '단계) <span class="badge ' + t.element + '">' + elementLabel(t.element) + '</span>'
+      + ' · 사거리 ' + (d.range / TILE) + '칸 · 공격력 ' + d.damage + ' · ' + d.cooldown + '초마다 발사';
+    const next = t.nextStage;
+    if (next) {
+      html += '<br>진화하면 → <b>' + next.name + '</b>: 사거리 ' + (next.range / TILE) + '칸 · 공격력 ' + next.damage + ' · ' + next.cooldown + '초마다 발사';
+      ui.btnEvolve.textContent = '진화 (' + next.cost + '골드)';
+      ui.btnEvolve.disabled = state.gold < next.cost;
+    } else {
+      html += '<br>최종 진화 완료! 더 강해질 수 없어요.';
+      ui.btnEvolve.textContent = '최종 진화';
+      ui.btnEvolve.disabled = true;
+    }
+    ui.infoText.innerHTML = html;
+    ui.btnSell.textContent = '팔기 (+' + sellPrice(t) + '골드)';
   }
 
   // ---------- 마우스 ----------
@@ -667,12 +807,11 @@
     if (!inBoard(t.c, t.r)) return;
     const existing = towerAt(t.c, t.r);
     if (existing) {
-      state.selected = state.selected === existing ? null : existing;
+      selectTower(state.selected === existing ? null : existing);
       return;
     }
     if (canPlace(t.c, t.r)) {
-      placeTower(t.c, t.r, 'saessak');
-      state.selected = null;
+      if (placeTower(t.c, t.r, state.shopType)) selectTower(null);
     } else {
       showNotice('길 위에는 타워를 놓을 수 없어요');
     }
@@ -685,7 +824,7 @@
     if (existing) removeTower(existing);
   });
 
-  // ---------- 버튼 ----------
+  // ---------- 버튼 / 키보드 ----------
   ui.btnStart.addEventListener('click', () => {
     if (state.gameOver || state.waveActive) return;
     startWave();
@@ -702,29 +841,40 @@
   ui.btnRestart.addEventListener('click', () => {
     resetState();
     ui.overlay.classList.add('hidden');
+    selectTower(null);
     updateHud();
   });
+  ui.btnEvolve.addEventListener('click', () => { if (state.selected && !state.gameOver) evolveTower(state.selected); });
+  ui.btnSell.addEventListener('click', () => { if (state.selected && !state.gameOver) removeTower(state.selected); });
   window.addEventListener('keydown', (e) => {
-    if (e.code === 'Space') { e.preventDefault(); ui.btnPause.click(); }
+    if (e.code === 'Space') { e.preventDefault(); ui.btnPause.click(); return; }
+    if (e.code === 'Digit1') { state.shopType = 'grass'; refreshShop(); }
+    if (e.code === 'Digit2') { state.shopType = 'fire'; refreshShop(); }
+    if (e.code === 'Digit3') { state.shopType = 'water'; refreshShop(); }
+    if (e.code === 'KeyE' && state.selected && !state.gameOver) evolveTower(state.selected);
+    if (e.code === 'Delete' && state.selected && !state.gameOver) removeTower(state.selected);
   });
 
   // ---------- 테스트용 주소 옵션 (예: index.html?autostart=1&speed=3) ----------
   const params = new URLSearchParams(location.search);
   if (params.get('speed')) state.speed = Math.max(1, Number(params.get('speed')) || 1);
-  if (params.get('autostart') === '1') startWave();
   window.__game = state; // 자동 테스트에서 상태를 들여다보기 위한 창구
+  window.__rules = { typeMultiplier, TOWER_TYPES, ENEMY_TYPES };
 
-  // ---------- 게임 루프 ----------
+  // ---------- 시작 ----------
+  buildShop();
+  updateHud();
+  if (params.get('autostart') === '1') startWave();
+
   let last = performance.now();
   function frame(now) {
-    const dt = Math.min((now - last) / 1000, 0.1); // 너무 큰 시간 점프는 막기
+    const dt = Math.min((now - last) / 1000, 0.1);
     last = now;
     if (state.started && !state.paused && !state.gameOver) update(dt * state.speed);
-    updateParticles(dt * (state.paused ? 0 : state.speed));
+    updateEffects(dt * (state.paused ? 0 : state.speed));
     if (state.noticeTimer > 0) state.noticeTimer -= dt;
     render();
     requestAnimationFrame(frame);
   }
-  updateHud();
   requestAnimationFrame(frame);
 })();
