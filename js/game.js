@@ -45,7 +45,43 @@
     btnEvolve: document.getElementById('btnEvolve'),
     btnSell: document.getElementById('btnSell'),
     btnContinue: document.getElementById('btnContinue'),
+    btnMute: document.getElementById('btnMute'),
+    best: document.getElementById('best'),
   };
+
+  // ---------- 최고 기록 (브라우저에 저장되어 다음에 켜도 남아요) ----------
+  const BEST_KEY = 'pixelDefense.best';
+  function loadBest() {
+    try {
+      const b = JSON.parse(localStorage.getItem(BEST_KEY) || 'null');
+      if (b && typeof b.wave === 'number') return { wave: b.wave, kills: b.kills || 0, victories: b.victories || 0 };
+    } catch (e) { /* 저장소를 못 쓰면 기록 없음으로 */ }
+    return { wave: 0, kills: 0, victories: 0 };
+  }
+  function saveBest() {
+    try { localStorage.setItem(BEST_KEY, JSON.stringify(best)); } catch (e) { /* 무시 */ }
+  }
+  const best = loadBest();
+  // 게임이 끝났을 때 기록 갱신. 최고 웨이브가 올라갔으면 true
+  function recordResult(won) {
+    let improved = false;
+    if (won) best.victories += 1;
+    if (state.wave > best.wave) { best.wave = state.wave; improved = true; }
+    if (state.kills > best.kills) best.kills = state.kills;
+    saveBest();
+    return improved;
+  }
+
+  // ---------- 소리: 첫 클릭/키 입력 때 켜기 (브라우저 규칙) ----------
+  function ensureSound() {
+    Sound.init();
+    if (!state.paused) Sound.resume(); // 일시정지 중엔 클릭해도 소리를 다시 켜지 않음
+  }
+  window.addEventListener('pointerdown', ensureSound);
+  window.addEventListener('keydown', ensureSound);
+  function updateMuteLabel() {
+    ui.btnMute.textContent = Sound.isMuted() ? '🔇 소리 끔' : '🔊 소리';
+  }
 
   // ---------- 속성(타입) 상성: 불 > 풀 > 물 > 불 ----------
   const ELEMENTS = {
@@ -192,6 +228,7 @@
         state.gold += reward;
         spawnParticles(this.x, this.y, ENEMY_TYPES[this.type].color, 12, 130);
         spawnFloater(this.x, this.y - 16, '+' + reward, '#ffd54f');
+        Sound.play('kill');
       }
     }
   }
@@ -234,6 +271,7 @@
         state.bullets.push(new Bullet(this, best));
         this.cooldown = this.def.cooldown;
         this.recoil = 0.12;
+        Sound.play('shoot_' + this.element);
       }
     }
   }
@@ -260,6 +298,7 @@
       const step = this.speed * dt;
       if (dist <= step + 4) {
         const mult = typeMultiplier(this.element, t.element);
+        Sound.play('hit');
         t.takeDamage(Math.round(this.damage * mult));
         spawnParticles(t.x, t.y, this.color, mult > 1 ? 7 : 4, mult > 1 ? 90 : 60);
         if (mult !== 1 && t.effectTimer <= 0 && !t.dead) {
@@ -359,6 +398,7 @@
   }
 
   function startWave() {
+    if (!state.started) Sound.startMusic();
     state.wave += 1;
     state.spawnQueue = waveComposition(state.wave);
     state.spawnTimer = 0;
@@ -371,9 +411,13 @@
   function gameOver() {
     state.gameOver = true;
     selectTower(null);
+    Sound.stopMusic();
+    Sound.play('defeat');
+    const newRecord = recordResult(false);
     ui.overlayTitle.textContent = '패배!';
     ui.overlayTitle.classList.remove('win');
-    ui.overlayText.textContent = '몬스터가 마을에 도착했어요. ' + state.wave + '웨이브까지 버텼고, ' + state.kills + '마리를 물리쳤어요. (타워 ' + state.towers.length + '개, 남은 골드 ' + state.gold + ')';
+    ui.overlayText.textContent = '몬스터가 마을에 도착했어요. ' + state.wave + '웨이브까지 버텼고, ' + state.kills + '마리를 물리쳤어요. (타워 ' + state.towers.length + '개, 남은 골드 ' + state.gold + ')'
+      + (newRecord ? ' 🏆 최고 기록 갱신!' : '');
     ui.btnContinue.classList.add('hidden');
     ui.overlay.classList.remove('hidden');
     updateHud();
@@ -382,9 +426,12 @@
   function victory() {
     state.victory = true;
     selectTower(null);
+    Sound.stopMusic();
+    Sound.play('victory');
+    recordResult(true);
     ui.overlayTitle.textContent = '승리!';
     ui.overlayTitle.classList.add('win');
-    ui.overlayText.textContent = VICTORY_WAVE + '웨이브를 모두 막아내고 마을을 지켰어요! ' + state.kills + '마리를 물리쳤고, 생명이 ' + state.lives + ' 남았어요.';
+    ui.overlayText.textContent = VICTORY_WAVE + '웨이브를 모두 막아내고 마을을 지켰어요! ' + state.kills + '마리를 물리쳤고, 생명이 ' + state.lives + ' 남았어요. (승리 ' + best.victories + '회째)';
     ui.btnContinue.classList.remove('hidden');
     ui.overlay.classList.remove('hidden');
     spawnParticles(canvas.width / 2, canvas.height / 2, '#ffd54f', 60, 260);
@@ -418,6 +465,7 @@
     const def = TOWER_TYPES[typeKey].stages[0];
     if (!canAfford(typeKey)) {
       showNotice('골드가 부족해요 (' + def.name + ' ' + def.cost + '골드)');
+      Sound.play('error');
       return null;
     }
     state.gold -= def.cost;
@@ -426,13 +474,14 @@
     spawnParticles(t.x, t.y, ELEMENTS[t.element].color, 8, 70);
     spawnFloater(t.x, t.y - 20, '-' + def.cost, '#ff8a80');
     showNotice(def.name + '를 심었어요! (-' + def.cost + '골드)');
+    Sound.play('place');
     updateHud();
     return t;
   }
   function evolveTower(t) {
     const next = t.nextStage;
-    if (!next) { showNotice(t.def.name + '는 이미 최종 진화예요'); return false; }
-    if (state.gold < next.cost) { showNotice('골드가 부족해요 (진화 ' + next.cost + '골드)'); return false; }
+    if (!next) { showNotice(t.def.name + '는 이미 최종 진화예요'); Sound.play('error'); return false; }
+    if (state.gold < next.cost) { showNotice('골드가 부족해요 (진화 ' + next.cost + '골드)'); Sound.play('error'); return false; }
     const before = t.def.name;
     state.gold -= next.cost;
     t.invested += next.cost;
@@ -441,6 +490,7 @@
     spawnParticles(t.x, t.y, ELEMENTS[t.element].color, 10, 90);
     spawnFloater(t.x, t.y - 24, '진화!', '#ffd54f');
     showNotice(before + '가 ' + t.def.name + '로 진화했어요!', 2.5);
+    Sound.play('evolve');
     updateHud();
     refreshInfo(true);
     return true;
@@ -453,6 +503,7 @@
     spawnParticles(t.x, t.y, '#b07a3c', 6, 60);
     spawnFloater(t.x, t.y - 20, '+' + refund, '#ffd54f');
     showNotice('타워를 팔아서 ' + refund + '골드를 돌려받았어요');
+    Sound.play('sell');
     updateHud();
   }
 
@@ -470,6 +521,7 @@
         if (e.boss) {
           showNotice('보스 등장! ' + e.name + '!', 3);
           spawnParticles(e.x + TILE, e.y, '#ffd54f', 20, 120);
+          Sound.play('boss');
         }
       }
     }
@@ -490,6 +542,7 @@
     if (arrived.length > 0) {
       state.lives -= arrived.reduce((sum, e) => sum + e.livesDamage, 0);
       state.hitFlash = 0.4;
+      Sound.play('lifeLost');
       if (arrived.some((e) => e.boss)) showNotice('보스가 마을에 들어왔어요! 생명 -5', 2.5);
       if (state.lives <= 0) {
         state.lives = 0;
@@ -509,6 +562,7 @@
         victory();
         return;
       }
+      Sound.play('waveClear');
     }
     if (state.started && !state.waveActive) {
       state.breakTimer -= dt;
@@ -799,6 +853,7 @@
     ui.btnStart.disabled = state.waveActive || inputLocked();
     ui.btnPause.textContent = state.paused ? '계속하기' : '일시정지';
     ui.btnSpeed.textContent = '배속 x' + state.speed;
+    ui.best.textContent = best.wave > 0 ? best.wave + '웨이브' + (best.victories > 0 ? ' (승리 ' + best.victories + '회)' : '') : '-';
     refreshShop();
     refreshInfo(false);
   }
@@ -894,6 +949,7 @@
       if (placeTower(t.c, t.r, state.shopType)) selectTower(null);
     } else {
       showNotice('길 위에는 타워를 놓을 수 없어요');
+      Sound.play('error');
     }
   });
   canvas.addEventListener('contextmenu', (ev) => {
@@ -915,12 +971,18 @@
     state.endless = true;
     ui.overlay.classList.add('hidden');
     showNotice('끝없는 모드! 얼마나 버틸 수 있을까요?', 3);
+    Sound.startMusic();
     updateHud();
   });
   ui.btnPause.addEventListener('click', () => {
     if (state.gameOver) return;
     state.paused = !state.paused;
+    if (state.paused) Sound.suspend(); else Sound.resume();
     updateHud();
+  });
+  ui.btnMute.addEventListener('click', () => {
+    Sound.setMuted(!Sound.isMuted());
+    updateMuteLabel();
   });
   ui.btnSpeed.addEventListener('click', () => {
     state.speed = state.speed >= 3 ? 1 : state.speed + 1;
@@ -928,6 +990,7 @@
   });
   ui.btnRestart.addEventListener('click', () => {
     resetState();
+    Sound.stopMusic();
     ui.overlay.classList.add('hidden');
     selectTower(null);
     updateHud();
@@ -947,10 +1010,11 @@
   const params = new URLSearchParams(location.search);
   if (params.get('speed')) state.speed = Math.max(1, Number(params.get('speed')) || 1);
   window.__game = state; // 자동 테스트에서 상태를 들여다보기 위한 창구
-  window.__rules = { typeMultiplier, TOWER_TYPES, ENEMY_TYPES, waveComposition, describeWave, VICTORY_WAVE };
+  window.__rules = { typeMultiplier, TOWER_TYPES, ENEMY_TYPES, waveComposition, describeWave, VICTORY_WAVE, best };
 
   // ---------- 시작 ----------
   buildShop();
+  updateMuteLabel();
   updateHud();
   if (params.get('autostart') === '1') startWave();
 
