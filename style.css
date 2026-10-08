@@ -69,6 +69,8 @@ button:disabled { opacity: .5; cursor: default; }
   border: 2px solid #5a6b8f;
 }
 .help { color: #aab; font-size: 13px; margin-top: 2px; }
+#towerCost { color: var(--accent); font-weight: 700; }
+#towerCost.poor { color: #ff6b6b; }
 
 #stage { position: relative; width: 100%; }
 

@@ -13,6 +13,8 @@
   const COLS = 16;          // 가로 칸 수
   const ROWS = 12;          // 세로 칸 수
   const START_LIVES = 10;   // 시작 생명
+  const START_GOLD = 120;   // 시작 골드
+  const SELL_RATIO = 0.7;   // 타워를 팔면 가격의 70%를 돌려받음
   const SPRITE_SCALE = 3;   // 12픽셀 그림을 3배로 키워 36픽셀로
   const SPAWN_GAP = 0.9;    // 몬스터가 나오는 간격(초)
   const BREAK_TIME = 3;     // 웨이브 사이 쉬는 시간(초)
@@ -27,6 +29,8 @@
     enemies: document.getElementById('enemies'),
     kills: document.getElementById('kills'),
     towers: document.getElementById('towers'),
+    gold: document.getElementById('gold'),
+    towerCost: document.getElementById('towerCost'),
     btnStart: document.getElementById('btnStart'),
     btnPause: document.getElementById('btnPause'),
     btnSpeed: document.getElementById('btnSpeed'),
@@ -68,14 +72,17 @@
 
   // ---------- 몬스터(적) 종류 ----------
   const ENEMY_TYPES = {
-    mongle: { sprite: 'mongle', speed: 55, hp: 20, color: '#5ad66b' },  // 느리지만 튼튼
-    bulti:  { sprite: 'bulti',  speed: 90, hp: 12, color: '#ff7a2a' },  // 빠르지만 약함
+    mongle: { sprite: 'mongle', speed: 55, hp: 20, color: '#5ad66b', reward: 6 },  // 느리지만 튼튼
+    bulti:  { sprite: 'bulti',  speed: 90, hp: 12, color: '#ff7a2a', reward: 8 },  // 빠르지만 약함
   };
+  // 웨이브를 막아내면 받는 보너스 골드
+  const waveBonus = (n) => 20 + n * 5;
 
   // ---------- 타워(우리 편) 종류 ----------
   const TOWER_TYPES = {
     saessak: {
       sprite: 'saessak', name: '새싹이',
+      cost: 50,          // 가격(골드)
       range: 100,        // 사거리(픽셀) = 2.5칸
       damage: 6,         // 씨앗 한 발 공격력
       cooldown: 0.6,     // 발사 간격(초)
@@ -143,7 +150,10 @@
         this.hp = 0;
         this.dead = true;
         state.kills += 1;
+        const reward = ENEMY_TYPES[this.type].reward;
+        state.gold += reward;
         spawnParticles(this.x, this.y, ENEMY_TYPES[this.type].color, 12, 130);
+        spawnFloater(this.x, this.y - 16, '+' + reward, '#ffd54f');
       }
     }
   }
@@ -215,6 +225,11 @@
     }
   }
 
+  // ---------- 떠오르는 숫자 ("+6" 같은 것) ----------
+  function spawnFloater(x, y, text, color) {
+    state.floaters.push({ x, y, text, color, life: 0.9, maxLife: 0.9 });
+  }
+
   // ---------- 반짝이 효과 ----------
   function spawnParticles(x, y, color, count, power) {
     for (let i = 0; i < count; i++) {
@@ -245,7 +260,9 @@
     state.towers = [];
     state.bullets = [];
     state.particles = [];
+    state.floaters = [];      // "+6" 처럼 떠오르는 숫자들
     state.kills = 0;
+    state.gold = START_GOLD;
     state.spawnQueue = [];
     state.spawnTimer = 0;
     state.started = false;
@@ -282,7 +299,7 @@
     state.gameOver = true;
     state.selected = null;
     ui.overlayTitle.textContent = '패배!';
-    ui.overlayText.textContent = '몬스터가 마을에 도착했어요. ' + state.wave + '웨이브까지 버텼고, ' + state.kills + '마리를 물리쳤어요.';
+    ui.overlayText.textContent = '몬스터가 마을에 도착했어요. ' + state.wave + '웨이브까지 버텼고, ' + state.kills + '마리를 물리쳤어요. (타워 ' + state.towers.length + '개, 남은 골드 ' + state.gold + ')';
     ui.overlay.classList.remove('hidden');
     updateHud();
   }
@@ -294,20 +311,36 @@
   function canPlace(c, r) {
     return inBoard(c, r) && !isPath(c, r) && !towerAt(c, r);
   }
+  function canAfford(type) {
+    return state.gold >= TOWER_TYPES[type].cost;
+  }
+  function sellPrice(t) {
+    return Math.floor(t.def.cost * SELL_RATIO);
+  }
   function placeTower(c, r, type) {
     if (!canPlace(c, r)) return null;
+    const def = TOWER_TYPES[type];
+    if (!canAfford(type)) {
+      showNotice('골드가 부족해요 (' + def.name + ' ' + def.cost + '골드)');
+      return null;
+    }
+    state.gold -= def.cost;
     const t = new Tower(c, r, type);
     state.towers.push(t);
     spawnParticles(t.x, t.y, '#7fe36b', 8, 70);
-    showNotice('새싹이를 심었어요!');
+    spawnFloater(t.x, t.y - 20, '-' + def.cost, '#ff8a80');
+    showNotice(def.name + '를 심었어요! (-' + def.cost + '골드)');
     updateHud();
     return t;
   }
   function removeTower(t) {
+    const refund = sellPrice(t);
+    state.gold += refund;
     state.towers = state.towers.filter((x) => x !== t);
     if (state.selected === t) state.selected = null;
     spawnParticles(t.x, t.y, '#b07a3c', 6, 60);
-    showNotice('타워를 치웠어요');
+    spawnFloater(t.x, t.y - 20, '+' + refund, '#ffd54f');
+    showNotice('타워를 팔아서 ' + refund + '골드를 돌려받았어요');
     updateHud();
   }
 
@@ -349,7 +382,9 @@
     if (state.waveActive && state.spawnQueue.length === 0 && state.enemies.length === 0) {
       state.waveActive = false;
       state.breakTimer = BREAK_TIME;
-      showNotice(state.wave + '웨이브 방어 성공!', 2.5);
+      const bonus = waveBonus(state.wave);
+      state.gold += bonus;
+      showNotice(state.wave + '웨이브 방어 성공! 보너스 +' + bonus + '골드', 2.5);
     }
     if (state.started && !state.waveActive) {
       state.breakTimer -= dt;
@@ -369,6 +404,11 @@
       p.life -= dt;
     }
     state.particles = state.particles.filter((p) => p.life > 0);
+    for (const f of state.floaters) {
+      f.y -= 28 * dt; // 위로 천천히 떠오름
+      f.life -= dt;
+    }
+    state.floaters = state.floaters.filter((f) => f.life > 0);
   }
 
   // ---------- 그리기 ----------
@@ -507,6 +547,19 @@
     ctx.globalAlpha = 1;
   }
 
+  function drawFloaters() {
+    ctx.font = 'bold 13px sans-serif';
+    ctx.textAlign = 'center';
+    for (const f of state.floaters) {
+      ctx.globalAlpha = Math.max(0, Math.min(1, f.life / f.maxLife * 1.5));
+      ctx.fillStyle = '#1a1a1a';
+      ctx.fillText(f.text, Math.round(f.x) + 1, Math.round(f.y) + 1);
+      ctx.fillStyle = f.color;
+      ctx.fillText(f.text, Math.round(f.x), Math.round(f.y));
+    }
+    ctx.globalAlpha = 1;
+  }
+
   function drawMessage(text, sub) {
     ctx.fillStyle = 'rgba(0,0,0,0.55)';
     ctx.fillRect(canvas.width / 2 - 170, 14, 340, sub ? 56 : 36);
@@ -539,9 +592,11 @@
 
     // 사거리 표시: 고른 타워, 또는 설치 미리보기
     const hoverPlaceable = state.hover && !state.gameOver && canPlace(state.hover.c, state.hover.r);
+    const affordable = canAfford('saessak');
     if (state.selected) drawRange(state.selected.x, state.selected.y, state.selected.def.range, true);
     if (hoverPlaceable) {
-      drawRange(state.hover.c * TILE + TILE / 2, state.hover.r * TILE + TILE / 2, TOWER_TYPES.saessak.range, true);
+      // 골드가 모자라면 빨간 원으로 보여줌
+      drawRange(state.hover.c * TILE + TILE / 2, state.hover.r * TILE + TILE / 2, TOWER_TYPES.saessak.range, affordable);
     } else if (state.hover && !state.gameOver && !towerAt(state.hover.c, state.hover.r)) {
       ctx.fillStyle = 'rgba(255,60,60,0.35)';
       ctx.fillRect(state.hover.c * TILE, state.hover.r * TILE, TILE, TILE);
@@ -556,10 +611,11 @@
 
     for (const b of state.bullets) drawBullet(b);
     drawParticles();
+    drawFloaters();
 
-    // 설치 미리보기 그림(반투명)
+    // 설치 미리보기 그림(반투명). 골드가 모자라면 더 흐리게
     if (hoverPlaceable) {
-      drawSprite(spriteCache.saessak, state.hover.c * TILE + TILE / 2, state.hover.r * TILE + TILE / 2, 1, 0.55);
+      drawSprite(spriteCache.saessak, state.hover.c * TILE + TILE / 2, state.hover.r * TILE + TILE / 2, 1, affordable ? 0.55 : 0.25);
     }
 
     if (state.hitFlash > 0) {
@@ -584,6 +640,9 @@
     ui.enemies.textContent = state.enemies.length + state.spawnQueue.length;
     ui.kills.textContent = state.kills;
     ui.towers.textContent = state.towers.length;
+    ui.gold.textContent = state.gold;
+    ui.towerCost.textContent = TOWER_TYPES.saessak.cost + '골드';
+    ui.towerCost.classList.toggle('poor', !canAfford('saessak'));
     ui.btnStart.textContent = state.started ? '다음 웨이브' : '웨이브 시작';
     ui.btnStart.disabled = state.waveActive || state.gameOver;
     ui.btnPause.textContent = state.paused ? '계속하기' : '일시정지';
