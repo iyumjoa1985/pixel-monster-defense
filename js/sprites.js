@@ -5,7 +5,7 @@
 // ============================================================
 
 const SPRITES = {
-  // 몽글이: 느리지만 튼튼한 초록 슬라임
+  // 몽글이: 느리지만 튼튼한 초록 슬라임 (적)
   mongle: {
     name: '몽글이',
     palette: { o: '#1f4d2a', g: '#5ad66b', l: '#a8f0a0', w: '#ffffff', k: '#1a1a1a', p: '#ff9ab0' },
@@ -25,7 +25,7 @@ const SPRITES = {
     ],
   },
 
-  // 불티: 빠르지만 약한 불꽃 몬스터
+  // 불티: 빠르지만 약한 불꽃 몬스터 (적)
   bulti: {
     name: '불티',
     palette: { o: '#7a2200', y: '#ffe14d', r: '#ff7a2a', w: '#ffffff', k: '#1a1a1a' },
@@ -42,6 +42,26 @@ const SPRITES = {
       '.orrrrrrrro.',
       '..oo.oo.oo..',
       '............',
+    ],
+  },
+
+  // 새싹이: 화분에 심긴 새싹 몬스터. 씨앗을 쏘는 우리 편 타워
+  saessak: {
+    name: '새싹이',
+    palette: { o: '#1f4d2a', L: '#7fe36b', D: '#3fae4a', g: '#d6f59a', w: '#ffffff', k: '#1a1a1a', p: '#ff9ab0', b: '#8b5a2b', t: '#b07a3c' },
+    rows: [
+      '.....oo.....',
+      '....oLLo....',
+      '.oo.oLLo.oo.',
+      'oLLooDDooLLo',
+      '.ooogggggoo.',
+      '.oggwkgwkgo.',
+      'ogpggggggpgo',
+      'oggggggggggo',
+      '.oggggggggo.',
+      '..oobbbboo..',
+      '..obbttbbo..',
+      '...oooooo...',
     ],
   },
 };

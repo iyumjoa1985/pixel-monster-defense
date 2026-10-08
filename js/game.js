@@ -25,6 +25,8 @@
     lives: document.getElementById('lives'),
     wave: document.getElementById('wave'),
     enemies: document.getElementById('enemies'),
+    kills: document.getElementById('kills'),
+    towers: document.getElementById('towers'),
     btnStart: document.getElementById('btnStart'),
     btnPause: document.getElementById('btnPause'),
     btnSpeed: document.getElementById('btnSpeed'),
@@ -32,6 +34,7 @@
     overlay: document.getElementById('overlay'),
     overlayTitle: document.getElementById('overlayTitle'),
     overlayText: document.getElementById('overlayText'),
+    towerIcon: document.getElementById('towerIcon'),
   };
 
   // ---------- 경로 ----------
@@ -46,7 +49,7 @@
   // 칸 좌표 -> 픽셀 좌표(칸의 한가운데)
   const WAYPOINTS = PATH_TILES.map(([c, r]) => ({ x: c * TILE + TILE / 2, y: r * TILE + TILE / 2 }));
 
-  // 길에 해당하는 칸 모음 (그리기용)
+  // 길에 해당하는 칸 모음 (그리기, 설치 금지 판단용)
   const pathTiles = new Set();
   for (let i = 0; i < PATH_TILES.length - 1; i++) {
     const [c1, r1] = PATH_TILES[i];
@@ -61,32 +64,57 @@
     }
   }
   const isPath = (c, r) => pathTiles.has(c + ',' + r);
+  const inBoard = (c, r) => c >= 0 && c < COLS && r >= 0 && r < ROWS;
 
-  // ---------- 몬스터 종류 ----------
+  // ---------- 몬스터(적) 종류 ----------
   const ENEMY_TYPES = {
-    mongle: { sprite: 'mongle', speed: 55, hp: 20 },  // 느리지만 튼튼
-    bulti:  { sprite: 'bulti',  speed: 90, hp: 12 },  // 빠르지만 약함
+    mongle: { sprite: 'mongle', speed: 55, hp: 20, color: '#5ad66b' },  // 느리지만 튼튼
+    bulti:  { sprite: 'bulti',  speed: 90, hp: 12, color: '#ff7a2a' },  // 빠르지만 약함
   };
+
+  // ---------- 타워(우리 편) 종류 ----------
+  const TOWER_TYPES = {
+    saessak: {
+      sprite: 'saessak', name: '새싹이',
+      range: 100,        // 사거리(픽셀) = 2.5칸
+      damage: 6,         // 씨앗 한 발 공격력
+      cooldown: 0.6,     // 발사 간격(초)
+      bulletSpeed: 280,  // 씨앗 속도
+      bulletColor: '#9be36b',
+    },
+  };
+
   const spriteCache = {};
   for (const key of Object.keys(SPRITES)) spriteCache[key] = buildSprite(SPRITES[key], SPRITE_SCALE);
 
+  // 패널에 타워 얼굴 그려두기
+  {
+    const g = ui.towerIcon.getContext('2d');
+    g.imageSmoothingEnabled = false;
+    g.drawImage(spriteCache.saessak, 0, 0);
+  }
+
+  // ---------- 적 ----------
   class Enemy {
     constructor(type, wave) {
       const def = ENEMY_TYPES[type];
       this.type = type;
-      this.speed = def.speed * (1 + (wave - 1) * 0.06); // 웨이브가 오를수록 조금씩 빨라짐
-      this.maxHp = def.hp;
-      this.hp = def.hp;
+      this.speed = def.speed * (1 + (wave - 1) * 0.06);           // 웨이브가 오를수록 조금씩 빨라짐
+      this.maxHp = Math.round(def.hp * (1 + (wave - 1) * 0.2));   // 체력도 조금씩 늘어남
+      this.hp = this.maxHp;
       this.x = WAYPOINTS[0].x;
       this.y = WAYPOINTS[0].y;
       this.wp = 1;            // 다음에 갈 지점 번호
       this.dir = 1;           // 1이면 오른쪽 보기, -1이면 왼쪽 보기
       this.reached = false;   // 마을에 도착했는지
+      this.dead = false;      // 쓰러졌는지
+      this.traveled = 0;      // 지금까지 걸어온 거리 (타워가 "가장 앞선 적"을 고를 때 씀)
       this.t = Math.random() * 10; // 애니메이션용 시계
     }
 
     update(dt) {
       let remaining = this.speed * dt; // 이번 프레임에 갈 수 있는 거리
+      const budget = remaining;
       while (remaining > 0 && this.wp < WAYPOINTS.length) {
         const target = WAYPOINTS[this.wp];
         const dx = target.x - this.x;
@@ -94,7 +122,6 @@
         const dist = Math.hypot(dx, dy);
         if (dx !== 0) this.dir = dx > 0 ? 1 : -1;
         if (dist <= remaining) {
-          // 지점에 도착 -> 다음 지점으로
           this.x = target.x; this.y = target.y;
           this.wp += 1;
           remaining -= dist;
@@ -104,8 +131,97 @@
           remaining = 0;
         }
       }
+      this.traveled += budget - remaining;
       if (this.wp >= WAYPOINTS.length) this.reached = true;
       this.t += dt;
+    }
+
+    takeDamage(amount) {
+      if (this.dead || this.reached) return;
+      this.hp -= amount;
+      if (this.hp <= 0) {
+        this.hp = 0;
+        this.dead = true;
+        state.kills += 1;
+        spawnParticles(this.x, this.y, ENEMY_TYPES[this.type].color, 12, 130);
+      }
+    }
+  }
+
+  // ---------- 타워 ----------
+  class Tower {
+    constructor(c, r, type) {
+      this.c = c; this.r = r;
+      this.type = type;
+      this.def = TOWER_TYPES[type];
+      this.x = c * TILE + TILE / 2;
+      this.y = r * TILE + TILE / 2;
+      this.cooldown = 0;   // 다음 발사까지 남은 시간
+      this.recoil = 0;     // 발사 직후 살짝 움찔하는 효과
+      this.dir = 1;
+      this.target = null;
+    }
+
+    update(dt) {
+      this.cooldown -= dt;
+      if (this.recoil > 0) this.recoil -= dt;
+
+      // 사거리 안에서 가장 멀리 걸어온(마을에 가장 가까운) 적을 고릅니다
+      let best = null;
+      for (const e of state.enemies) {
+        if (e.dead || e.reached) continue;
+        const d = Math.hypot(e.x - this.x, e.y - this.y);
+        if (d <= this.def.range && (!best || e.traveled > best.traveled)) best = e;
+      }
+      this.target = best;
+      if (!best) return;
+
+      this.dir = best.x >= this.x ? 1 : -1;
+      if (this.cooldown <= 0) {
+        state.bullets.push(new Bullet(this, best));
+        this.cooldown = this.def.cooldown;
+        this.recoil = 0.12;
+      }
+    }
+  }
+
+  // ---------- 씨앗(총알) ----------
+  class Bullet {
+    constructor(tower, target) {
+      this.x = tower.x;
+      this.y = tower.y - 8;
+      this.target = target;
+      this.speed = tower.def.bulletSpeed;
+      this.damage = tower.def.damage;
+      this.color = tower.def.bulletColor;
+      this.done = false;
+    }
+
+    update(dt) {
+      const t = this.target;
+      if (t.dead || t.reached) { this.done = true; return; } // 목표가 사라지면 씨앗도 사라짐
+      const dx = t.x - this.x;
+      const dy = t.y - this.y;
+      const dist = Math.hypot(dx, dy);
+      const step = this.speed * dt;
+      if (dist <= step + 4) {
+        t.takeDamage(this.damage);
+        spawnParticles(t.x, t.y, this.color, 4, 60);
+        this.done = true;
+        return;
+      }
+      this.x += (dx / dist) * step;
+      this.y += (dy / dist) * step;
+    }
+  }
+
+  // ---------- 반짝이 효과 ----------
+  function spawnParticles(x, y, color, count, power) {
+    for (let i = 0; i < count; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const s = power * (0.3 + Math.random() * 0.7);
+      const life = 0.35 + Math.random() * 0.35;
+      state.particles.push({ x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s - 40, life, maxLife: life, color, size: 3 + Math.floor(Math.random() * 3) });
     }
   }
 
@@ -126,6 +242,10 @@
     state.lives = START_LIVES;
     state.wave = 0;
     state.enemies = [];
+    state.towers = [];
+    state.bullets = [];
+    state.particles = [];
+    state.kills = 0;
     state.spawnQueue = [];
     state.spawnTimer = 0;
     state.started = false;
@@ -136,8 +256,17 @@
     state.gameOver = false;
     state.hitFlash = 0;
     state.time = 0;
+    state.hover = null;       // 마우스가 올라간 칸
+    state.selected = null;    // 클릭해서 고른 타워
+    state.notice = '';        // 화면 아래 짧은 안내 문구
+    state.noticeTimer = 0;
   }
   resetState();
+
+  function showNotice(text, seconds) {
+    state.notice = text;
+    state.noticeTimer = seconds || 1.5;
+  }
 
   function startWave() {
     state.wave += 1;
@@ -151,9 +280,34 @@
 
   function gameOver() {
     state.gameOver = true;
+    state.selected = null;
     ui.overlayTitle.textContent = '패배!';
-    ui.overlayText.textContent = '몬스터가 마을에 도착했어요. ' + state.wave + '웨이브까지 버텼어요.';
+    ui.overlayText.textContent = '몬스터가 마을에 도착했어요. ' + state.wave + '웨이브까지 버텼고, ' + state.kills + '마리를 물리쳤어요.';
     ui.overlay.classList.remove('hidden');
+    updateHud();
+  }
+
+  // ---------- 타워 설치 / 제거 ----------
+  function towerAt(c, r) {
+    return state.towers.find((t) => t.c === c && t.r === r) || null;
+  }
+  function canPlace(c, r) {
+    return inBoard(c, r) && !isPath(c, r) && !towerAt(c, r);
+  }
+  function placeTower(c, r, type) {
+    if (!canPlace(c, r)) return null;
+    const t = new Tower(c, r, type);
+    state.towers.push(t);
+    spawnParticles(t.x, t.y, '#7fe36b', 8, 70);
+    showNotice('새싹이를 심었어요!');
+    updateHud();
+    return t;
+  }
+  function removeTower(t) {
+    state.towers = state.towers.filter((x) => x !== t);
+    if (state.selected === t) state.selected = null;
+    spawnParticles(t.x, t.y, '#b07a3c', 6, 60);
+    showNotice('타워를 치웠어요');
     updateHud();
   }
 
@@ -168,13 +322,20 @@
       }
     }
 
-    // 2) 몬스터 이동
+    // 2) 타워가 적을 고르고 씨앗 발사
+    for (const t of state.towers) t.update(dt);
+
+    // 3) 씨앗 날아가기 + 맞추기
+    for (const b of state.bullets) b.update(dt);
+    state.bullets = state.bullets.filter((b) => !b.done);
+
+    // 4) 몬스터 이동
     for (const e of state.enemies) e.update(dt);
 
-    // 3) 마을 도착 -> 생명 감소
-    const arrived = state.enemies.filter((e) => e.reached);
+    // 5) 마을 도착 -> 생명 감소 / 쓰러진 적 치우기
+    const arrived = state.enemies.filter((e) => e.reached && !e.dead);
+    state.enemies = state.enemies.filter((e) => !e.reached && !e.dead);
     if (arrived.length > 0) {
-      state.enemies = state.enemies.filter((e) => !e.reached);
       state.lives -= arrived.length;
       state.hitFlash = 0.4;
       if (state.lives <= 0) {
@@ -184,10 +345,11 @@
       }
     }
 
-    // 4) 웨이브가 끝나면 잠깐 쉬고 다음 웨이브
+    // 6) 웨이브가 끝나면 잠깐 쉬고 다음 웨이브
     if (state.waveActive && state.spawnQueue.length === 0 && state.enemies.length === 0) {
       state.waveActive = false;
       state.breakTimer = BREAK_TIME;
+      showNotice(state.wave + '웨이브 방어 성공!', 2.5);
     }
     if (state.started && !state.waveActive) {
       state.breakTimer -= dt;
@@ -199,19 +361,27 @@
     updateHud();
   }
 
+  function updateParticles(dt) {
+    for (const p of state.particles) {
+      p.x += p.vx * dt;
+      p.y += p.vy * dt;
+      p.vy += 220 * dt; // 중력처럼 아래로 떨어짐
+      p.life -= dt;
+    }
+    state.particles = state.particles.filter((p) => p.life > 0);
+  }
+
   // ---------- 그리기 ----------
   function drawTile(c, r) {
     const x = c * TILE, y = r * TILE;
     if (isPath(c, r)) {
       ctx.fillStyle = '#d2b073';
       ctx.fillRect(x, y, TILE, TILE);
-      // 돌멩이 몇 개 (칸마다 항상 같은 자리에)
       ctx.fillStyle = '#b8955a';
       const n = (c * 7 + r * 13) % 4;
       for (let i = 0; i < n; i++) {
         ctx.fillRect(x + 4 + ((c * 31 + i * 17 + r * 5) % 32), y + 4 + ((r * 23 + i * 11 + c * 3) % 32), 4, 4);
       }
-      // 풀과 맞닿은 가장자리는 조금 어둡게
       ctx.fillStyle = '#a07f48';
       if (!isPath(c, r - 1)) ctx.fillRect(x, y, TILE, 3);
       if (!isPath(c, r + 1)) ctx.fillRect(x, y + TILE - 3, TILE, 3);
@@ -220,7 +390,7 @@
     } else {
       ctx.fillStyle = (c + r) % 2 === 0 ? '#72cf5f' : '#68c356';
       ctx.fillRect(x, y, TILE, TILE);
-      if ((c * 5 + r * 3) % 7 === 0) { // 가끔 풀 포기
+      if ((c * 5 + r * 3) % 7 === 0) {
         ctx.fillStyle = '#4fa844';
         ctx.fillRect(x + 12, y + 20, 4, 8);
         ctx.fillRect(x + 20, y + 16, 4, 12);
@@ -245,10 +415,8 @@
 
   function drawHouse() {
     const x = HOME_TILE[0] * TILE, y = HOME_TILE[1] * TILE;
-    // 벽
     ctx.fillStyle = '#f6dfae';
     ctx.fillRect(x + 6, y + 16, 28, 22);
-    // 지붕
     ctx.fillStyle = '#d9534f';
     ctx.beginPath();
     ctx.moveTo(x + 2, y + 18);
@@ -256,7 +424,6 @@
     ctx.lineTo(x + 38, y + 18);
     ctx.closePath();
     ctx.fill();
-    // 문, 창문
     ctx.fillStyle = '#8b5a2b';
     ctx.fillRect(x + 17, y + 26, 8, 12);
     ctx.fillStyle = '#9ad7ff';
@@ -268,17 +435,13 @@
     ctx.fillText('마을', x + TILE / 2, y - 2);
   }
 
-  function drawEnemy(e) {
-    const img = spriteCache[ENEMY_TYPES[e.type].sprite];
+  function drawSprite(img, cx, cy, dir, alpha) {
     const w = img.width, h = img.height;
-    const bob = Math.round(Math.sin(e.t * 10) * 2); // 통통 튀는 느낌
-    const dx = Math.round(e.x - w / 2);
-    const dy = Math.round(e.y - h / 2 + bob);
-    // 그림자
-    ctx.fillStyle = 'rgba(0,0,0,0.25)';
-    ctx.fillRect(Math.round(e.x - 12), Math.round(e.y + h / 2 - 5), 24, 4);
+    const dx = Math.round(cx - w / 2);
+    const dy = Math.round(cy - h / 2);
     ctx.save();
-    if (e.dir < 0) { // 왼쪽으로 갈 때는 그림을 뒤집기
+    if (alpha !== undefined) ctx.globalAlpha = alpha;
+    if (dir < 0) {
       ctx.translate(dx + w, dy);
       ctx.scale(-1, 1);
       ctx.drawImage(img, 0, 0);
@@ -286,6 +449,62 @@
       ctx.drawImage(img, dx, dy);
     }
     ctx.restore();
+  }
+
+  function drawShadow(x, y) {
+    ctx.fillStyle = 'rgba(0,0,0,0.25)';
+    ctx.fillRect(Math.round(x - 12), Math.round(y + 13), 24, 4);
+  }
+
+  function drawEnemy(e) {
+    const img = spriteCache[ENEMY_TYPES[e.type].sprite];
+    const bob = Math.round(Math.sin(e.t * 10) * 2);
+    drawShadow(e.x, e.y);
+    drawSprite(img, e.x, e.y + bob, e.dir);
+    // 체력 막대 (다친 적만)
+    if (e.hp < e.maxHp) {
+      const bx = Math.round(e.x - 13), by = Math.round(e.y - 24 + bob);
+      ctx.fillStyle = '#1a1a1a';
+      ctx.fillRect(bx, by, 26, 5);
+      ctx.fillStyle = '#e53935';
+      ctx.fillRect(bx + 1, by + 1, 24, 3);
+      ctx.fillStyle = '#43d16a';
+      ctx.fillRect(bx + 1, by + 1, Math.round(24 * (e.hp / e.maxHp)), 3);
+    }
+  }
+
+  function drawTower(t) {
+    const img = spriteCache[t.def.sprite];
+    const hop = t.recoil > 0 ? -2 : 0;
+    drawShadow(t.x, t.y);
+    drawSprite(img, t.x, t.y + hop, t.dir);
+  }
+
+  function drawRange(x, y, range, ok) {
+    ctx.beginPath();
+    ctx.arc(x, y, range, 0, Math.PI * 2);
+    ctx.fillStyle = ok ? 'rgba(255,255,255,0.14)' : 'rgba(255,80,80,0.18)';
+    ctx.fill();
+    ctx.strokeStyle = ok ? 'rgba(255,255,255,0.75)' : 'rgba(255,80,80,0.85)';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+  }
+
+  function drawBullet(b) {
+    const x = Math.round(b.x), y = Math.round(b.y);
+    ctx.fillStyle = '#1f4d2a';
+    ctx.fillRect(x - 4, y - 4, 8, 8);
+    ctx.fillStyle = b.color;
+    ctx.fillRect(x - 2, y - 2, 4, 4);
+  }
+
+  function drawParticles() {
+    for (const p of state.particles) {
+      ctx.globalAlpha = Math.max(0, p.life / p.maxLife);
+      ctx.fillStyle = p.color;
+      ctx.fillRect(Math.round(p.x), Math.round(p.y), p.size, p.size);
+    }
+    ctx.globalAlpha = 1;
   }
 
   function drawMessage(text, sub) {
@@ -302,14 +521,46 @@
     }
   }
 
+  function drawNotice() {
+    if (state.noticeTimer <= 0 || !state.notice) return;
+    ctx.font = 'bold 15px sans-serif';
+    ctx.textAlign = 'center';
+    const w = ctx.measureText(state.notice).width + 28;
+    ctx.fillStyle = 'rgba(0,0,0,0.6)';
+    ctx.fillRect(canvas.width / 2 - w / 2, canvas.height - 44, w, 28);
+    ctx.fillStyle = '#ffd54f';
+    ctx.fillText(state.notice, canvas.width / 2, canvas.height - 25);
+  }
+
   function render() {
     for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) drawTile(c, r);
     drawCave();
     drawHouse();
 
-    // 아래쪽에 있는 몬스터가 앞에 보이도록 정렬
-    const sorted = state.enemies.slice().sort((a, b) => a.y - b.y);
-    for (const e of sorted) drawEnemy(e);
+    // 사거리 표시: 고른 타워, 또는 설치 미리보기
+    const hoverPlaceable = state.hover && !state.gameOver && canPlace(state.hover.c, state.hover.r);
+    if (state.selected) drawRange(state.selected.x, state.selected.y, state.selected.def.range, true);
+    if (hoverPlaceable) {
+      drawRange(state.hover.c * TILE + TILE / 2, state.hover.r * TILE + TILE / 2, TOWER_TYPES.saessak.range, true);
+    } else if (state.hover && !state.gameOver && !towerAt(state.hover.c, state.hover.r)) {
+      ctx.fillStyle = 'rgba(255,60,60,0.35)';
+      ctx.fillRect(state.hover.c * TILE, state.hover.r * TILE, TILE, TILE);
+    }
+
+    // 타워와 몬스터를 함께 아래쪽부터 정렬해서 그리기 (아래에 있는 게 앞에 보이도록)
+    const units = [];
+    for (const t of state.towers) units.push({ y: t.y, draw: () => drawTower(t) });
+    for (const e of state.enemies) units.push({ y: e.y, draw: () => drawEnemy(e) });
+    units.sort((a, b) => a.y - b.y);
+    for (const u of units) u.draw();
+
+    for (const b of state.bullets) drawBullet(b);
+    drawParticles();
+
+    // 설치 미리보기 그림(반투명)
+    if (hoverPlaceable) {
+      drawSprite(spriteCache.saessak, state.hover.c * TILE + TILE / 2, state.hover.r * TILE + TILE / 2, 1, 0.55);
+    }
 
     if (state.hitFlash > 0) {
       ctx.fillStyle = 'rgba(255,0,0,' + ((state.hitFlash / 0.4) * 0.35) + ')';
@@ -317,12 +568,13 @@
     }
 
     if (!state.started) {
-      drawMessage('웨이브 시작 버튼을 눌러주세요', '몬스터가 마을에 도착하면 생명이 줄어요');
+      drawMessage('풀밭을 클릭해 새싹이를 심고, 웨이브 시작을 눌러주세요', '몬스터가 마을에 도착하면 생명이 줄어요');
     } else if (!state.waveActive && !state.gameOver) {
       drawMessage('다음 웨이브까지 ' + Math.ceil(state.breakTimer) + '초');
     } else if (state.paused) {
       drawMessage('일시정지');
     }
+    drawNotice();
   }
 
   // ---------- 화면 숫자 갱신 ----------
@@ -330,11 +582,49 @@
     ui.lives.textContent = state.lives;
     ui.wave.textContent = state.wave;
     ui.enemies.textContent = state.enemies.length + state.spawnQueue.length;
+    ui.kills.textContent = state.kills;
+    ui.towers.textContent = state.towers.length;
     ui.btnStart.textContent = state.started ? '다음 웨이브' : '웨이브 시작';
     ui.btnStart.disabled = state.waveActive || state.gameOver;
     ui.btnPause.textContent = state.paused ? '계속하기' : '일시정지';
     ui.btnSpeed.textContent = '배속 x' + state.speed;
   }
+
+  // ---------- 마우스 ----------
+  function tileFromEvent(ev) {
+    const rect = canvas.getBoundingClientRect();
+    const x = (ev.clientX - rect.left) * canvas.width / rect.width;
+    const y = (ev.clientY - rect.top) * canvas.height / rect.height;
+    return { c: Math.floor(x / TILE), r: Math.floor(y / TILE) };
+  }
+  canvas.addEventListener('mousemove', (ev) => {
+    const t = tileFromEvent(ev);
+    state.hover = inBoard(t.c, t.r) ? t : null;
+  });
+  canvas.addEventListener('mouseleave', () => { state.hover = null; });
+  canvas.addEventListener('click', (ev) => {
+    if (state.gameOver) return;
+    const t = tileFromEvent(ev);
+    if (!inBoard(t.c, t.r)) return;
+    const existing = towerAt(t.c, t.r);
+    if (existing) {
+      state.selected = state.selected === existing ? null : existing;
+      return;
+    }
+    if (canPlace(t.c, t.r)) {
+      placeTower(t.c, t.r, 'saessak');
+      state.selected = null;
+    } else {
+      showNotice('길 위에는 타워를 놓을 수 없어요');
+    }
+  });
+  canvas.addEventListener('contextmenu', (ev) => {
+    ev.preventDefault();
+    if (state.gameOver) return;
+    const t = tileFromEvent(ev);
+    const existing = towerAt(t.c, t.r);
+    if (existing) removeTower(existing);
+  });
 
   // ---------- 버튼 ----------
   ui.btnStart.addEventListener('click', () => {
@@ -353,7 +643,7 @@
   ui.btnRestart.addEventListener('click', () => {
     resetState();
     ui.overlay.classList.add('hidden');
-    startWave();
+    updateHud();
   });
   window.addEventListener('keydown', (e) => {
     if (e.code === 'Space') { e.preventDefault(); ui.btnPause.click(); }
@@ -371,6 +661,8 @@
     const dt = Math.min((now - last) / 1000, 0.1); // 너무 큰 시간 점프는 막기
     last = now;
     if (state.started && !state.paused && !state.gameOver) update(dt * state.speed);
+    updateParticles(dt * (state.paused ? 0 : state.speed));
+    if (state.noticeTimer > 0) state.noticeTimer -= dt;
     render();
     requestAnimationFrame(frame);
   }

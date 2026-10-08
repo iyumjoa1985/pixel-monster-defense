@@ -12,12 +12,22 @@
       <div class="stat">❤️ 생명 <span id="lives">10</span></div>
       <div class="stat">🌊 웨이브 <span id="wave">0</span></div>
       <div class="stat">👾 남은 몬스터 <span id="enemies">0</span></div>
+      <div class="stat">⚔️ 처치 <span id="kills">0</span></div>
+      <div class="stat">🌱 타워 <span id="towers">0</span></div>
       <div class="controls">
         <button id="btnStart">웨이브 시작</button>
         <button id="btnPause">일시정지</button>
         <button id="btnSpeed">배속 x1</button>
       </div>
     </header>
+
+    <div id="panel">
+      <canvas id="towerIcon" width="36" height="36"></canvas>
+      <div>
+        <div><b>새싹이</b> · 사거리 2.5칸 · 공격력 6 · 0.6초마다 씨앗 발사</div>
+        <div class="help">풀밭 클릭: 심기 &nbsp;|&nbsp; 타워 클릭: 사거리 보기 &nbsp;|&nbsp; 타워 오른쪽 클릭: 치우기</div>
+      </div>
+    </div>
 
     <div id="stage">
       <canvas id="game" width="640" height="480"></canvas>
@@ -30,7 +40,7 @@
       </div>
     </div>
 
-    <p id="hint">몬스터들이 길을 따라 마을로 걸어옵니다. 마을에 도착하면 생명이 1 줄어요. (1단계: 아직 타워는 없어요)</p>
+    <p id="hint">몬스터들이 길을 따라 마을로 걸어옵니다. 마을에 도착하면 생명이 1 줄어요. 풀밭에 새싹이를 심어서 막아보세요! (2단계: 타워는 아직 공짜예요)</p>
     <pre id="errlog" hidden></pre>
   </div>
 
