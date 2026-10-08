@@ -18,6 +18,7 @@
   const SPRITE_SCALE = 3;   // 12픽셀 그림을 3배로 키워 36픽셀로
   const SPAWN_GAP = 0.9;    // 몬스터가 나오는 간격(초)
   const BREAK_TIME = 3;     // 웨이브 사이 쉬는 시간(초)
+  const VICTORY_WAVE = 20;  // 이 웨이브까지 막아내면 승리
 
   const canvas = document.getElementById('game');
   const ctx = canvas.getContext('2d');
@@ -43,6 +44,7 @@
     infoText: document.getElementById('infoText'),
     btnEvolve: document.getElementById('btnEvolve'),
     btnSell: document.getElementById('btnSell'),
+    btnContinue: document.getElementById('btnContinue'),
   };
 
   // ---------- 속성(타입) 상성: 불 > 풀 > 물 > 불 ----------
@@ -87,10 +89,15 @@
   const inBoard = (c, r) => c >= 0 && c < COLS && r >= 0 && r < ROWS;
 
   // ---------- 몬스터(적) 종류 ----------
+  // livesDamage: 마을에 도착했을 때 깎이는 생명. boss: 보스 여부
   const ENEMY_TYPES = {
-    mongle:   { sprite: 'mongle',   name: '몽글이', element: 'grass', speed: 55, hp: 20, reward: 6, color: '#5ad66b' }, // 느리지만 튼튼
-    bulti:    { sprite: 'bulti',    name: '불티',   element: 'fire',  speed: 90, hp: 12, reward: 8, color: '#ff7a2a' }, // 빠르지만 약함
-    mulkeong: { sprite: 'mulkeong', name: '물컹이', element: 'water', speed: 65, hp: 26, reward: 7, color: '#4fc3f7' }, // 중간 속도, 튼튼
+    mongle:     { sprite: 'mongle',     name: '몽글이',   element: 'grass', speed: 55,  hp: 20,  reward: 6,   livesDamage: 1, color: '#5ad66b' }, // 느리지만 튼튼
+    bulti:      { sprite: 'bulti',      name: '불티',     element: 'fire',  speed: 90,  hp: 12,  reward: 8,   livesDamage: 1, color: '#ff7a2a' }, // 빠르지만 약함
+    mulkeong:   { sprite: 'mulkeong',   name: '물컹이',   element: 'water', speed: 65,  hp: 26,  reward: 7,   livesDamage: 1, color: '#4fc3f7' }, // 중간 속도, 튼튼
+    bug:        { sprite: 'bug',        name: '씨앗벌레', element: 'grass', speed: 120, hp: 8,   reward: 5,   livesDamage: 1, color: '#8be34a' }, // 아주 빠름
+    crab:       { sprite: 'crab',       name: '용암게',   element: 'fire',  speed: 40,  hp: 45,  reward: 10,  livesDamage: 1, color: '#d9452b' }, // 느리고 아주 튼튼
+    kingmongle: { sprite: 'kingmongle', name: '왕몽글',   element: 'grass', speed: 35,  hp: 350, reward: 80,  livesDamage: 5, color: '#5ad66b', boss: true }, // 10웨이브 보스
+    magma:      { sprite: 'magma',      name: '마그마왕', element: 'fire',  speed: 32,  hp: 700, reward: 150, livesDamage: 5, color: '#ff4d1f', boss: true }, // 20웨이브 보스
   };
   const waveBonus = (n) => 20 + n * 5; // 웨이브를 막아내면 받는 보너스 골드
 
@@ -144,6 +151,9 @@
       this.traveled = 0;
       this.effectTimer = 0;   // "굉장!" 글씨가 너무 자주 뜨지 않게 하는 시계
       this.t = Math.random() * 10;
+      this.name = def.name;
+      this.boss = !!def.boss;
+      this.livesDamage = def.livesDamage || 1;
     }
 
     update(dt) {
@@ -287,9 +297,26 @@
       let type = 'mongle';
       if (n >= 3 && i % 3 === 2) type = 'bulti';      // 3웨이브부터 불티
       if (n >= 4 && i % 4 === 1) type = 'mulkeong';   // 4웨이브부터 물컹이
+      if (n >= 6 && i % 5 === 3) type = 'bug';        // 6웨이브부터 씨앗벌레
+      if (n >= 8 && i % 6 === 0) type = 'crab';       // 8웨이브부터 용암게
       list.push(type);
     }
+    // 10웨이브마다 맨 마지막에 보스 (10, 30, 50... 왕몽글 / 20, 40... 마그마왕)
+    if (n % 10 === 0) list.push(n % 20 === 0 ? 'magma' : 'kingmongle');
     return list;
+  }
+
+  // "몽글이 7, 불티 3 + 보스 왕몽글!" 처럼 웨이브 구성을 글로 설명
+  function describeWave(n) {
+    const counts = {};
+    for (const t of waveComposition(n)) counts[t] = (counts[t] || 0) + 1;
+    const parts = [];
+    let bossName = null;
+    for (const t of Object.keys(counts)) {
+      if (ENEMY_TYPES[t].boss) bossName = ENEMY_TYPES[t].name;
+      else parts.push(ENEMY_TYPES[t].name + ' ' + counts[t]);
+    }
+    return parts.join(', ') + (bossName ? ' + 보스 ' + bossName + '!' : '');
   }
 
   // ---------- 게임 상태 ----------
@@ -304,7 +331,10 @@
     state.floaters = [];
     state.kills = 0;
     state.gold = START_GOLD;
-    state.spawned = { mongle: 0, bulti: 0, mulkeong: 0 }; // 지금까지 나온 몬스터 수 (기록용)
+    state.spawned = {};                                   // 지금까지 나온 몬스터 수 (기록용)
+    for (const k of Object.keys(ENEMY_TYPES)) state.spawned[k] = 0;
+    state.victory = false;    // 20웨이브를 막아냈는지
+    state.endless = false;    // 승리 후 "끝없는 모드"로 계속하는 중인지
     state.spawnQueue = [];
     state.spawnTimer = 0;
     state.started = false;
@@ -342,10 +372,26 @@
     state.gameOver = true;
     selectTower(null);
     ui.overlayTitle.textContent = '패배!';
+    ui.overlayTitle.classList.remove('win');
     ui.overlayText.textContent = '몬스터가 마을에 도착했어요. ' + state.wave + '웨이브까지 버텼고, ' + state.kills + '마리를 물리쳤어요. (타워 ' + state.towers.length + '개, 남은 골드 ' + state.gold + ')';
+    ui.btnContinue.classList.add('hidden');
     ui.overlay.classList.remove('hidden');
     updateHud();
   }
+
+  function victory() {
+    state.victory = true;
+    selectTower(null);
+    ui.overlayTitle.textContent = '승리!';
+    ui.overlayTitle.classList.add('win');
+    ui.overlayText.textContent = VICTORY_WAVE + '웨이브를 모두 막아내고 마을을 지켰어요! ' + state.kills + '마리를 물리쳤고, 생명이 ' + state.lives + ' 남았어요.';
+    ui.btnContinue.classList.remove('hidden');
+    ui.overlay.classList.remove('hidden');
+    spawnParticles(canvas.width / 2, canvas.height / 2, '#ffd54f', 60, 260);
+    updateHud();
+  }
+
+  const inputLocked = () => state.gameOver || state.victory;
 
   // ---------- 타워 설치 / 진화 / 팔기 ----------
   function towerAt(c, r) {
@@ -417,9 +463,14 @@
       state.spawnTimer -= dt;
       if (state.spawnTimer <= 0) {
         const type = state.spawnQueue.shift();
-        state.enemies.push(new Enemy(type, state.wave));
+        const e = new Enemy(type, state.wave);
+        state.enemies.push(e);
         state.spawned[type] += 1;
-        state.spawnTimer = SPAWN_GAP;
+        state.spawnTimer = e.boss ? SPAWN_GAP * 2 : SPAWN_GAP;
+        if (e.boss) {
+          showNotice('보스 등장! ' + e.name + '!', 3);
+          spawnParticles(e.x + TILE, e.y, '#ffd54f', 20, 120);
+        }
       }
     }
 
@@ -437,8 +488,9 @@
     const arrived = state.enemies.filter((e) => e.reached && !e.dead);
     state.enemies = state.enemies.filter((e) => !e.reached && !e.dead);
     if (arrived.length > 0) {
-      state.lives -= arrived.length;
+      state.lives -= arrived.reduce((sum, e) => sum + e.livesDamage, 0);
       state.hitFlash = 0.4;
+      if (arrived.some((e) => e.boss)) showNotice('보스가 마을에 들어왔어요! 생명 -5', 2.5);
       if (state.lives <= 0) {
         state.lives = 0;
         gameOver();
@@ -453,6 +505,10 @@
       const bonus = waveBonus(state.wave);
       state.gold += bonus;
       showNotice(state.wave + '웨이브 방어 성공! 보너스 +' + bonus + '골드', 2.5);
+      if (state.wave === VICTORY_WAVE && !state.endless) {
+        victory();
+        return;
+      }
     }
     if (state.started && !state.waveActive) {
       state.breakTimer -= dt;
@@ -559,25 +615,48 @@
     ctx.restore();
   }
 
-  function drawShadow(x, y) {
+  function drawShadow(x, y, w, dy) {
+    w = w || 24;
+    dy = dy || 13;
     ctx.fillStyle = 'rgba(0,0,0,0.25)';
-    ctx.fillRect(Math.round(x - 12), Math.round(y + 13), 24, 4);
+    ctx.fillRect(Math.round(x - w / 2), Math.round(y + dy), w, 4);
   }
 
   function drawEnemy(e) {
     const img = spriteCache[ENEMY_TYPES[e.type].sprite];
-    const bob = Math.round(Math.sin(e.t * 10) * 2);
-    drawShadow(e.x, e.y);
+    const bob = Math.round(Math.sin(e.t * (e.boss ? 6 : 10)) * 2);
+    drawShadow(e.x, e.y, e.boss ? 40 : 24, e.boss ? 19 : 13);
     drawSprite(img, e.x, e.y + bob, e.dir);
     if (e.hp < e.maxHp) {
-      const bx = Math.round(e.x - 13), by = Math.round(e.y - 24 + bob);
+      const bw = e.boss ? 40 : 24;
+      const bx = Math.round(e.x - bw / 2 - 1), by = Math.round(e.y - (e.boss ? 32 : 24) + bob);
       ctx.fillStyle = '#1a1a1a';
-      ctx.fillRect(bx, by, 26, 5);
+      ctx.fillRect(bx, by, bw + 2, 5);
       ctx.fillStyle = '#e53935';
-      ctx.fillRect(bx + 1, by + 1, 24, 3);
+      ctx.fillRect(bx + 1, by + 1, bw, 3);
       ctx.fillStyle = '#43d16a';
-      ctx.fillRect(bx + 1, by + 1, Math.round(24 * (e.hp / e.maxHp)), 3);
+      ctx.fillRect(bx + 1, by + 1, Math.round(bw * (e.hp / e.maxHp)), 3);
     }
+  }
+
+  // 보스가 살아 있으면 화면 위쪽에 큰 체력 막대
+  function drawBossBar() {
+    const boss = state.enemies.find((e) => e.boss && !e.dead);
+    if (!boss) return;
+    const w = 300, x = canvas.width / 2 - w / 2, y = 84;
+    ctx.fillStyle = 'rgba(0,0,0,0.6)';
+    ctx.fillRect(x - 8, y - 22, w + 16, 40);
+    ctx.fillStyle = '#ffffff';
+    ctx.font = 'bold 13px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('보스 ' + boss.name + ' ' + elementLabel(boss.element) + '  ' + boss.hp + ' / ' + boss.maxHp, canvas.width / 2, y - 7);
+    ctx.fillStyle = '#5a1a1a';
+    ctx.fillRect(x, y, w, 10);
+    ctx.fillStyle = '#ff5252';
+    ctx.fillRect(x, y, Math.round(w * (boss.hp / boss.maxHp)), 10);
+    ctx.strokeStyle = '#ffd54f';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(x, y, w, 10);
   }
 
   function drawTower(t) {
@@ -639,15 +718,15 @@
 
   function drawMessage(text, sub) {
     ctx.fillStyle = 'rgba(0,0,0,0.55)';
-    ctx.fillRect(canvas.width / 2 - 190, 14, 380, sub ? 56 : 36);
+    ctx.fillRect(canvas.width / 2 - 235, 14, 470, sub ? 56 : 36);
     ctx.fillStyle = '#ffffff';
     ctx.textAlign = 'center';
     ctx.font = 'bold 18px sans-serif';
     ctx.fillText(text, canvas.width / 2, 38);
     if (sub) {
-      ctx.font = '13px sans-serif';
+      ctx.font = '12px sans-serif';
       ctx.fillStyle = '#ffd54f';
-      ctx.fillText(sub, canvas.width / 2, 58);
+      ctx.fillText(sub, canvas.width / 2, 58, 460);
     }
   }
 
@@ -687,6 +766,7 @@
     for (const b of state.bullets) drawBullet(b);
     drawParticles();
     drawFloaters();
+    drawBossBar();
 
     if (hoverPlaceable) {
       drawSprite(spriteCache[shopDef.sprite], state.hover.c * TILE + TILE / 2, state.hover.r * TILE + TILE / 2, 1, affordable ? 0.55 : 0.25);
@@ -698,9 +778,9 @@
     }
 
     if (!state.started) {
-      drawMessage('타워를 고르고 풀밭을 클릭해 심은 뒤, 웨이브 시작!', '몬스터가 마을에 도착하면 생명이 줄어요');
-    } else if (!state.waveActive && !state.gameOver) {
-      drawMessage('다음 웨이브까지 ' + Math.ceil(state.breakTimer) + '초');
+      drawMessage('타워를 고르고 풀밭을 클릭해 심은 뒤, 웨이브 시작!', '1웨이브: ' + describeWave(1) + ' · ' + VICTORY_WAVE + '웨이브를 막으면 승리!');
+    } else if (!state.waveActive && !state.gameOver && !state.victory) {
+      drawMessage('다음 웨이브까지 ' + Math.ceil(state.breakTimer) + '초', (state.wave + 1) + '웨이브: ' + describeWave(state.wave + 1));
     } else if (state.paused) {
       drawMessage('일시정지');
     }
@@ -710,13 +790,13 @@
   // ---------- 화면 숫자 / 상점 / 정보창 갱신 ----------
   function updateHud() {
     ui.lives.textContent = state.lives;
-    ui.wave.textContent = state.wave;
+    ui.wave.textContent = state.endless ? state.wave + ' (끝없는 모드)' : state.wave + ' / ' + VICTORY_WAVE;
     ui.enemies.textContent = state.enemies.length + state.spawnQueue.length;
     ui.kills.textContent = state.kills;
     ui.towers.textContent = state.towers.length;
     ui.gold.textContent = state.gold;
     ui.btnStart.textContent = state.started ? '다음 웨이브' : '웨이브 시작';
-    ui.btnStart.disabled = state.waveActive || state.gameOver;
+    ui.btnStart.disabled = state.waveActive || inputLocked();
     ui.btnPause.textContent = state.paused ? '계속하기' : '일시정지';
     ui.btnSpeed.textContent = '배속 x' + state.speed;
     refreshShop();
@@ -802,7 +882,7 @@
   });
   canvas.addEventListener('mouseleave', () => { state.hover = null; });
   canvas.addEventListener('click', (ev) => {
-    if (state.gameOver) return;
+    if (inputLocked()) return;
     const t = tileFromEvent(ev);
     if (!inBoard(t.c, t.r)) return;
     const existing = towerAt(t.c, t.r);
@@ -818,7 +898,7 @@
   });
   canvas.addEventListener('contextmenu', (ev) => {
     ev.preventDefault();
-    if (state.gameOver) return;
+    if (inputLocked()) return;
     const t = tileFromEvent(ev);
     const existing = towerAt(t.c, t.r);
     if (existing) removeTower(existing);
@@ -826,8 +906,16 @@
 
   // ---------- 버튼 / 키보드 ----------
   ui.btnStart.addEventListener('click', () => {
-    if (state.gameOver || state.waveActive) return;
+    if (inputLocked() || state.waveActive) return;
     startWave();
+  });
+  ui.btnContinue.addEventListener('click', () => {
+    if (!state.victory) return;
+    state.victory = false;
+    state.endless = true;
+    ui.overlay.classList.add('hidden');
+    showNotice('끝없는 모드! 얼마나 버틸 수 있을까요?', 3);
+    updateHud();
   });
   ui.btnPause.addEventListener('click', () => {
     if (state.gameOver) return;
@@ -844,22 +932,22 @@
     selectTower(null);
     updateHud();
   });
-  ui.btnEvolve.addEventListener('click', () => { if (state.selected && !state.gameOver) evolveTower(state.selected); });
-  ui.btnSell.addEventListener('click', () => { if (state.selected && !state.gameOver) removeTower(state.selected); });
+  ui.btnEvolve.addEventListener('click', () => { if (state.selected && !inputLocked()) evolveTower(state.selected); });
+  ui.btnSell.addEventListener('click', () => { if (state.selected && !inputLocked()) removeTower(state.selected); });
   window.addEventListener('keydown', (e) => {
     if (e.code === 'Space') { e.preventDefault(); ui.btnPause.click(); return; }
     if (e.code === 'Digit1') { state.shopType = 'grass'; refreshShop(); }
     if (e.code === 'Digit2') { state.shopType = 'fire'; refreshShop(); }
     if (e.code === 'Digit3') { state.shopType = 'water'; refreshShop(); }
-    if (e.code === 'KeyE' && state.selected && !state.gameOver) evolveTower(state.selected);
-    if (e.code === 'Delete' && state.selected && !state.gameOver) removeTower(state.selected);
+    if (e.code === 'KeyE' && state.selected && !inputLocked()) evolveTower(state.selected);
+    if (e.code === 'Delete' && state.selected && !inputLocked()) removeTower(state.selected);
   });
 
   // ---------- 테스트용 주소 옵션 (예: index.html?autostart=1&speed=3) ----------
   const params = new URLSearchParams(location.search);
   if (params.get('speed')) state.speed = Math.max(1, Number(params.get('speed')) || 1);
   window.__game = state; // 자동 테스트에서 상태를 들여다보기 위한 창구
-  window.__rules = { typeMultiplier, TOWER_TYPES, ENEMY_TYPES };
+  window.__rules = { typeMultiplier, TOWER_TYPES, ENEMY_TYPES, waveComposition, describeWave, VICTORY_WAVE };
 
   // ---------- 시작 ----------
   buildShop();
@@ -870,7 +958,7 @@
   function frame(now) {
     const dt = Math.min((now - last) / 1000, 0.1);
     last = now;
-    if (state.started && !state.paused && !state.gameOver) update(dt * state.speed);
+    if (state.started && !state.paused && !inputLocked()) update(dt * state.speed);
     updateEffects(dt * (state.paused ? 0 : state.speed));
     if (state.noticeTimer > 0) state.noticeTimer -= dt;
     render();

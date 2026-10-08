@@ -67,6 +67,96 @@ const SPRITES = {
     ],
   },
 
+  // 씨앗벌레 (풀): 아주 빠르지만 약한 꼬마 벌레
+  bug: {
+    name: '씨앗벌레',
+    palette: { o: '#1f4d2a', G: '#8be34a', D: '#3fae4a', w: '#ffffff', k: '#1a1a1a' },
+    rows: [
+      '..o......o..',
+      '...o....o...',
+      '....oooo....',
+      '...oGGGGo...',
+      '.oGwkGGwkGo.',
+      '.oGGGGGGGGo.',
+      'ooDGGDDGGDoo',
+      '.oGGDGGDGGo.',
+      'ooGGGGGGGGoo',
+      '.oGGGGGGGGo.',
+      '..oooooooo..',
+      '............',
+    ],
+  },
+
+  // 용암게 (불): 느리지만 아주 튼튼한 게
+  crab: {
+    name: '용암게',
+    palette: { o: '#5a1a0a', C: '#ff8c42', R: '#d9452b', y: '#ffe14d', w: '#ffffff', k: '#1a1a1a' },
+    rows: [
+      '............',
+      '.oo......oo.',
+      'oCCo....oCCo',
+      'oCCooooooCCo',
+      '.ooRRRRRRoo.',
+      '.oRwkRRwkRo.',
+      'oRRRRRRRRRRo',
+      'oRRRRyyRRRRo',
+      'oRRRRRRRRRRo',
+      '.oRRRRRRRRo.',
+      '.o.o.oo.o.o.',
+      '............',
+    ],
+  },
+
+  // ===================== 보스 (16x16, 더 큼) =====================
+
+  // 왕몽글 (풀): 10웨이브 보스. 왕관을 쓴 거대 슬라임
+  kingmongle: {
+    name: '왕몽글',
+    palette: { o: '#1f4d2a', g: '#5ad66b', l: '#a8f0a0', w: '#ffffff', k: '#1a1a1a', p: '#ff9ab0', Y: '#ffd54f', m: '#7a1f2a' },
+    rows: [
+      '.....Y.YY.Y.....',
+      '.....YYYYYY.....',
+      '.....oooooo.....',
+      '...oolllggggoo..',
+      '..olllggggggggo.',
+      '.olggggggggggggo',
+      'olggwwkggggwwkgo',
+      'ogggwwkggggwwkgo',
+      'ogpggggggggggpgo',
+      'oggggooooooggggo',
+      'oggggommmmmggggo',
+      'oggggooooooggggo',
+      'oggggggggggggggo',
+      '.oggggggggggggo.',
+      '..oooooooooooo..',
+      '................',
+    ],
+  },
+
+  // 마그마왕 (불): 20웨이브 최종 보스. 용암이 흐르는 바위 괴물
+  magma: {
+    name: '마그마왕',
+    palette: { o: '#2a1a1a', D: '#5a4040', r: '#ff4d1f', y: '#ffe14d', w: '#ffffff', k: '#1a1a1a' },
+    rows: [
+      '....o..oo..o....',
+      '...oyo.oyyo.oyo.',
+      '..oyyyooyyooyyyo',
+      '.oorrrrrrrrrroo.',
+      '.oDDDDDDDDDDDDo.',
+      'oDDwwkDDDDkwwDDo',
+      'oDDDDDDrrDDDDDDo',
+      'oDDrrDDDDDDrrDDo',
+      'oDDDDrrDDrrDDDDo',
+      'oDDDDDDrrDDDDDDo',
+      'oDDkkkkkkkkkkDDo',
+      'oDDkwkwkwkwkwkDo',
+      'oDDDDDDDDDDDDDDo',
+      '.oDDrrDDDDrrDDo.',
+      '..oooooooooooo..',
+      '................',
+    ],
+  },
+
   // ===================== 풀 타워: 새싹이 → 잎사귀 → 꽃나래 =====================
 
   saessak: {

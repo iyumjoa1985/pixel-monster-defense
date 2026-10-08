@@ -152,6 +152,11 @@ button:disabled { opacity: .5; cursor: default; }
   border: 3px solid var(--accent);
 }
 .panel h1 { margin: 0 0 8px; color: #ff6b6b; font-size: 36px; }
+.panel h1.win { color: #69f0ae; }
+.panel .buttons { display: flex; gap: 8px; justify-content: center; }
+#btnContinue { background: #2e7d32; border-color: #5ad66b; }
+#btnContinue:hover { background: #388e3c; }
+#btnContinue.hidden { display: none; }
 
 #hint { color: #aab; font-size: 14px; margin-top: 10px; }
 
