@@ -1,0 +1,12 @@
+{
+  "name": "pixel-monster-defense",
+  "version": "0.1.0",
+  "private": true,
+  "description": "브라우저에서 실행되는 픽셀 몬스터 타워 디펜스 게임",
+  "scripts": {
+    "test": "node test/play-test.js"
+  },
+  "devDependencies": {
+    "puppeteer-core": "^24.0.0"
+  }
+}
