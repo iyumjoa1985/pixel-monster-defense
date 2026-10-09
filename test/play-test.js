@@ -130,7 +130,9 @@ async function clickTile(page, c, r, button) {
     await m.setViewport({ width: 844, height: 390, isMobile: true, hasTouch: true, deviceScaleFactor: 2 });
     await sleep(300);
     ms = await msnap();
+    const land = await m.evaluate(() => { const r = document.getElementById('game').getBoundingClientRect(); return { w: Math.round(r.width), h: Math.round(r.height), innerH: window.innerHeight, ratio: +(r.width / r.height).toFixed(2) }; });
     check(ms.noHScroll, '가로 화면에서도 가로 스크롤 없음');
+    check(land.h <= land.innerH && land.ratio === 1.33, '가로 화면에서는 게임판이 화면 높이에 맞고(' + land.w + '×' + land.h + 'px, 화면 높이 ' + land.innerH + 'px) 비율(4:3) 유지');
     await m.screenshot({ path: path.join(__dirname, 'shot_mobile_land.png') });
     check(merrors.length === 0, '휴대폰 화면에서 자바스크립트 오류 없음' + (merrors.length ? ': ' + merrors.join(' | ') : ''));
     await m.close();

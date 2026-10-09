@@ -202,6 +202,12 @@ button { touch-action: manipulation; }
   .touchOnly, .touchHelp { display: none; }
 }
 
+/* 납작한 화면(휴대폰 가로): 게임판이 한 화면에 다 들어오도록 높이에 맞춤 */
+@media (max-height: 520px) {
+  #game { width: auto; max-width: 100%; height: calc(100vh - 16px); margin: 0 auto; }
+  #stage { display: flex; justify-content: center; }
+}
+
 /* 좁은 화면(휴대폰 세로) */
 @media (max-width: 640px) {
   #app { padding: 8px; }
