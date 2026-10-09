@@ -52,6 +52,20 @@
     placeText: document.getElementById('placeText'),
     btnPlaceOk: document.getElementById('btnPlaceOk'),
     btnPlaceCancel: document.getElementById('btnPlaceCancel'),
+    btnMp: document.getElementById('btnMp'),
+    mpStatus: document.getElementById('mpStatus'),
+    mpPanel: document.getElementById('mpPanel'),
+    mpHostInfo: document.getElementById('mpHostInfo'),
+    mpCode: document.getElementById('mpCode'),
+    mpLink: document.getElementById('mpLink'),
+    mpJoinCode: document.getElementById('mpJoinCode'),
+    mpMessage: document.getElementById('mpMessage'),
+    btnMpHost: document.getElementById('btnMpHost'),
+    btnMpJoin: document.getElementById('btnMpJoin'),
+    btnMpCopy: document.getElementById('btnMpCopy'),
+    btnMpShare: document.getElementById('btnMpShare'),
+    btnMpLeave: document.getElementById('btnMpLeave'),
+    btnMpClose: document.getElementById('btnMpClose'),
   };
 
   // ---------- 최고 기록 (브라우저에 저장되어 다음에 켜도 남아요) ----------
@@ -101,6 +115,8 @@
     return 1;
   }
   const elementLabel = (el) => ELEMENTS[el].emoji + ELEMENTS[el].label;
+  const BULLET_COLORS = { grass: '#9be36b', fire: '#ff8c42', water: '#5ec8ff' }; // 친구 화면에서 총알 색
+  let nextId = 1; // 타워·몬스터에 붙이는 번호표 (친구 화면과 맞추는 데 씀)
 
   // ---------- 경로 ----------
   // 몬스터가 지나가는 길. (가로칸, 세로칸) 순서.
@@ -195,6 +211,7 @@
       this.name = def.name;
       this.boss = !!def.boss;
       this.livesDamage = def.livesDamage || 1;
+      this.id = nextId++;
     }
 
     update(dt) {
@@ -252,6 +269,8 @@
       this.recoil = 0;
       this.dir = 1;
       this.target = null;
+      this.id = nextId++;
+      this.owner = 'host';   // 누가 심었는지: 'host'(방장/혼자) 또는 'guest'(친구)
     }
     get def() { return TOWER_TYPES[this.typeKey].stages[this.stage]; }
     get isMax() { return this.stage >= TOWER_TYPES[this.typeKey].stages.length - 1; }
@@ -320,11 +339,13 @@
 
   // ---------- 떠오르는 글씨 ("+6", "굉장!") ----------
   function spawnFloater(x, y, text, color) {
+    netFx('floater', [x, y, text, color]);
     state.floaters.push({ x, y, text, color, life: 0.9, maxLife: 0.9 });
   }
 
   // ---------- 반짝이 효과 ----------
   function spawnParticles(x, y, color, count, power) {
+    netFx('particles', [x, y, color, count, power]);
     for (let i = 0; i < count; i++) {
       const a = Math.random() * Math.PI * 2;
       const s = power * (0.3 + Math.random() * 0.7);
@@ -393,12 +414,14 @@
     state.selected = null;
     state.pending = null;     // 터치에서 "여기에 심을까요?" 미리보기 중인 칸
     state.shopType = state.shopType || 'grass'; // 상점에서 고른 타워 종류
+    state.role = state.role || 'solo';          // 'solo' 혼자 / 'host' 방장 / 'guest' 친구
     state.notice = '';
     state.noticeTimer = 0;
   }
   resetState();
 
   function showNotice(text, seconds) {
+    netFx('notice', [text, seconds || 1.5]);
     state.notice = text;
     state.noticeTimer = seconds || 1.5;
   }
@@ -414,12 +437,9 @@
     updateHud();
   }
 
-  function gameOver() {
-    state.gameOver = true;
-    selectTower(null);
-    clearPending();
+  // 패배 화면 보여주기 (방장·친구 화면 모두에서 씀)
+  function presentDefeat() {
     Sound.stopMusic();
-    Sound.play('defeat');
     const newRecord = recordResult(false);
     ui.overlayTitle.textContent = '패배!';
     ui.overlayTitle.classList.remove('win');
@@ -427,23 +447,81 @@
       + (newRecord ? ' 🏆 최고 기록 갱신!' : '');
     ui.btnContinue.classList.add('hidden');
     ui.overlay.classList.remove('hidden');
+  }
+  function gameOver() {
+    state.gameOver = true;
+    selectTower(null);
+    clearPending();
+    Sound.play('defeat');
+    presentDefeat();
     updateHud();
   }
 
-  function victory() {
-    state.victory = true;
-    selectTower(null);
-    clearPending();
+  // 승리 화면 보여주기 (방장·친구 화면 모두에서 씀)
+  function presentVictory() {
     Sound.stopMusic();
-    Sound.play('victory');
     recordResult(true);
     ui.overlayTitle.textContent = '승리!';
     ui.overlayTitle.classList.add('win');
     ui.overlayText.textContent = VICTORY_WAVE + '웨이브를 모두 막아내고 마을을 지켰어요! ' + state.kills + '마리를 물리쳤고, 생명이 ' + state.lives + ' 남았어요. (승리 ' + best.victories + '회째)';
     ui.btnContinue.classList.remove('hidden');
     ui.overlay.classList.remove('hidden');
+  }
+  function victory() {
+    state.victory = true;
+    selectTower(null);
+    clearPending();
+    Sound.play('victory');
+    presentVictory();
     spawnParticles(canvas.width / 2, canvas.height / 2, '#ffd54f', 60, 260);
     updateHud();
+  }
+
+  function restartGame() {
+    resetState();
+    Sound.stopMusic();
+    ui.overlay.classList.add('hidden');
+    ui.placeBar.classList.add('hidden');
+    selectTower(null);
+    updateHud();
+  }
+  function continueEndless() {
+    if (!state.victory) return;
+    state.victory = false;
+    state.endless = true;
+    ui.overlay.classList.add('hidden');
+    showNotice('끝없는 모드! 얼마나 버틸 수 있을까요?', 3);
+    Sound.startMusic();
+    updateHud();
+  }
+  function togglePause() {
+    if (state.gameOver) return;
+    state.paused = !state.paused;
+    if (state.paused) Sound.suspend(); else Sound.resume();
+    updateHud();
+  }
+  function cycleSpeed() {
+    state.speed = state.speed >= 3 ? 1 : state.speed + 1;
+    updateHud();
+  }
+
+  // ---------- 모든 조작은 act()를 거침: 친구 화면이면 방장에게 보내고, 방장/혼자면 직접 실행 ----------
+  const towerById = (id) => state.towers.find((t) => t.id === id) || null;
+  function act(a, p) {
+    p = p || {};
+    if (state.role === 'guest') { Net.send({ t: 'act', a, p }); return true; }
+    const owner = p.owner || 'host';
+    switch (a) {
+      case 'place': return !!placeTower(p.c, p.r, p.type, owner);
+      case 'evolve': { const t = towerById(p.id); return t ? evolveTower(t) : false; }
+      case 'sell': { const t = towerById(p.id); if (t) removeTower(t); return !!t; }
+      case 'start': if (!inputLocked() && !state.waveActive) startWave(); return true;
+      case 'pause': togglePause(); return true;
+      case 'speed': cycleSpeed(); return true;
+      case 'restart': restartGame(); return true;
+      case 'continue': continueEndless(); return true;
+      default: return false;
+    }
   }
 
   const inputLocked = () => state.gameOver || state.victory;
@@ -493,10 +571,10 @@
   function confirmPending() {
     if (!state.pending) return;
     const { c, r } = state.pending;
-    if (placeTower(c, r, state.shopType)) clearPending();
+    if (act('place', { c, r, type: state.shopType })) clearPending();
   }
-  function placeTower(c, r, typeKey) {
-    if (!canPlace(c, r)) return null;
+  function placeTower(c, r, typeKey, owner) {
+    if (!canPlace(c, r) || !TOWER_TYPES[typeKey]) return null;
     const def = TOWER_TYPES[typeKey].stages[0];
     if (!canAfford(typeKey)) {
       showNotice('골드가 부족해요 (' + def.name + ' ' + def.cost + '골드)');
@@ -505,6 +583,7 @@
     }
     state.gold -= def.cost;
     const t = new Tower(c, r, typeKey);
+    t.owner = owner || 'host';
     state.towers.push(t);
     spawnParticles(t.x, t.y, ELEMENTS[t.element].color, 8, 70);
     spawnFloater(t.x, t.y - 20, '-' + def.cost, '#ff8a80');
@@ -577,6 +656,7 @@
     if (arrived.length > 0) {
       state.lives -= arrived.reduce((sum, e) => sum + e.livesDamage, 0);
       state.hitFlash = 0.4;
+      netFx('flash', null);
       Sound.play('lifeLost');
       if (arrived.some((e) => e.boss)) showNotice('보스가 마을에 들어왔어요! 생명 -5', 2.5);
       if (state.lives <= 0) {
@@ -763,6 +843,11 @@
       ctx.lineWidth = 2;
       ctx.strokeRect(t.c * TILE + 2, t.r * TILE + 2, TILE - 4, TILE - 4);
     }
+    // 친구와 함께할 때: 누가 심었는지 작은 점으로 표시 (파랑 = 방장, 분홍 = 친구)
+    if (state.role !== 'solo') {
+      ctx.fillStyle = t.owner === 'guest' ? '#ff6fa3' : '#4fc3f7';
+      ctx.fillRect(t.c * TILE + 3, t.r * TILE + 3, 6, 6);
+    }
   }
 
   function drawRange(x, y, range, ok) {
@@ -879,6 +964,10 @@
     } else if (state.paused) {
       drawMessage('일시정지');
     }
+    // 친구 화면: 방장 상태가 2.5초 넘게 안 오면 (방장이 다른 탭을 보는 중 등) 알려줌
+    if (state.role === 'guest' && Net.isConnected() && lastSnapAt && performance.now() - lastSnapAt > 2500) {
+      drawMessage('방장 쪽이 잠시 멈췄어요', '방장이 다른 화면을 보고 있으면 게임이 멈춰요. 돌아오면 이어져요.');
+    }
     drawNotice();
   }
 
@@ -951,7 +1040,8 @@
     g.drawImage(spriteCache[t.def.sprite], 0, 0);
     const d = t.def;
     let html = '<b>' + d.name + '</b> (' + (t.stage + 1) + '단계) <span class="badge ' + t.element + '">' + elementLabel(t.element) + '</span>'
-      + ' · 사거리 ' + (d.range / TILE) + '칸 · 공격력 ' + d.damage + ' · ' + d.cooldown + '초마다 발사';
+      + ' · 사거리 ' + (d.range / TILE) + '칸 · 공격력 ' + d.damage + ' · ' + d.cooldown + '초마다 발사'
+      + (state.role !== 'solo' ? (t.owner === 'guest' ? ' · 🩷친구가 심음' : ' · 💙방장이 심음') : '');
     const next = t.nextStage;
     if (next) {
       html += '<br>진화하면 → <b>' + next.name + '</b>: 사거리 ' + (next.range / TILE) + '칸 · 공격력 ' + next.damage + ' · ' + next.cooldown + '초마다 발사';
@@ -1007,7 +1097,7 @@
       return;
     }
     if (!isTouch) { // 마우스: 바로 심기
-      if (placeTower(t.c, t.r, state.shopType)) selectTower(null);
+      if (act('place', { c: t.c, r: t.r, type: state.shopType })) selectTower(null);
       return;
     }
     // 터치: 한 번 누르면 미리보기, 같은 곳을 다시 누르면 심기
@@ -1026,29 +1116,16 @@
     if (inputLocked()) return;
     const t = tileFromEvent(ev);
     const existing = towerAt(t.c, t.r);
-    if (existing) removeTower(existing);
+    if (existing) act('sell', { id: existing.id });
   });
 
   // ---------- 버튼 / 키보드 ----------
   ui.btnStart.addEventListener('click', () => {
     if (inputLocked() || state.waveActive) return;
-    startWave();
+    act('start');
   });
-  ui.btnContinue.addEventListener('click', () => {
-    if (!state.victory) return;
-    state.victory = false;
-    state.endless = true;
-    ui.overlay.classList.add('hidden');
-    showNotice('끝없는 모드! 얼마나 버틸 수 있을까요?', 3);
-    Sound.startMusic();
-    updateHud();
-  });
-  ui.btnPause.addEventListener('click', () => {
-    if (state.gameOver) return;
-    state.paused = !state.paused;
-    if (state.paused) Sound.suspend(); else Sound.resume();
-    updateHud();
-  });
+  ui.btnContinue.addEventListener('click', () => { if (state.victory) act('continue'); });
+  ui.btnPause.addEventListener('click', () => { if (!state.gameOver) act('pause'); });
   ui.btnMute.addEventListener('click', () => {
     Sound.setMuted(!Sound.isMuted());
     updateMuteLabel();
@@ -1061,27 +1138,231 @@
       if (screen.orientation && screen.orientation.lock) screen.orientation.lock('landscape').catch(() => {});
     }).catch(() => {});
   });
-  ui.btnSpeed.addEventListener('click', () => {
-    state.speed = state.speed >= 3 ? 1 : state.speed + 1;
-    updateHud();
-  });
-  ui.btnRestart.addEventListener('click', () => {
-    resetState();
-    Sound.stopMusic();
-    ui.overlay.classList.add('hidden');
-    ui.placeBar.classList.add('hidden');
-    selectTower(null);
-    updateHud();
-  });
-  ui.btnEvolve.addEventListener('click', () => { if (state.selected && !inputLocked()) evolveTower(state.selected); });
-  ui.btnSell.addEventListener('click', () => { if (state.selected && !inputLocked()) removeTower(state.selected); });
+  ui.btnSpeed.addEventListener('click', () => act('speed'));
+  ui.btnRestart.addEventListener('click', () => act('restart'));
+  ui.btnEvolve.addEventListener('click', () => { if (state.selected && !inputLocked()) act('evolve', { id: state.selected.id }); });
+  ui.btnSell.addEventListener('click', () => { if (state.selected && !inputLocked()) act('sell', { id: state.selected.id }); });
   window.addEventListener('keydown', (e) => {
+    if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) return; // 글자 입력 중엔 단축키 끔
     if (e.code === 'Space') { e.preventDefault(); ui.btnPause.click(); return; }
     if (e.code === 'Digit1') { state.shopType = 'grass'; refreshShop(); }
     if (e.code === 'Digit2') { state.shopType = 'fire'; refreshShop(); }
     if (e.code === 'Digit3') { state.shopType = 'water'; refreshShop(); }
-    if (e.code === 'KeyE' && state.selected && !inputLocked()) evolveTower(state.selected);
-    if (e.code === 'Delete' && state.selected && !inputLocked()) removeTower(state.selected);
+    if (e.code === 'KeyE' && state.selected && !inputLocked()) act('evolve', { id: state.selected.id });
+    if (e.code === 'Delete' && state.selected && !inputLocked()) act('sell', { id: state.selected.id });
+  });
+
+  // ============================================================
+  // 친구와 함께 (온라인 협동)
+  // 방장(host) 컴퓨터가 게임을 계산하고, 0.1초마다 친구(guest)에게 상태를 보냅니다.
+  // 친구는 받은 상태를 그려주고, 자기 조작(심기/진화/팔기/시작 등)은 방장에게 보냅니다.
+  // ============================================================
+  let netOutbox = [];   // 친구에게 보낼 효과(소리·반짝이·안내문) 모음
+  let netTimer = 0;
+  let lastSnapAt = 0;   // 친구 화면: 방장 상태를 마지막으로 받은 시각
+  const guestEnemies = new Map(); // 친구 화면용 몬스터 (번호표 → 객체)
+  const guestTowers = new Map();  // 친구 화면용 타워
+
+  function netFx(kind, p) {
+    if (state.role === 'host' && Net.isConnected()) netOutbox.push([kind, p]);
+  }
+  // 모든 소리는 친구에게도 전달
+  {
+    const originalPlay = Sound.play;
+    Sound.play = (name) => { originalPlay(name); netFx('sound', name); };
+  }
+
+  function buildSnapshot() {
+    return {
+      l: state.lives, w: state.wave, g: state.gold, k: state.kills, st: state.started, wa: state.waveActive,
+      bt: Math.round(state.breakTimer * 10) / 10, p: state.paused, sp: state.speed, go: state.gameOver, v: state.victory,
+      en: state.endless, q: state.spawnQueue.length,
+      e: state.enemies.map((e) => [e.id, e.type, Math.round(e.x), Math.round(e.y), e.dir, e.hp, e.maxHp]),
+      tw: state.towers.map((t) => [t.id, t.c, t.r, t.typeKey, t.stage, t.dir, t.recoil > 0 ? 1 : 0, t.owner, t.invested]),
+      b: state.bullets.map((b) => [Math.round(b.x), Math.round(b.y), b.element]),
+    };
+  }
+
+  function applySnapshot(s, fx) {
+    lastSnapAt = performance.now();
+    const prev = { gameOver: state.gameOver, victory: state.victory, paused: state.paused };
+    state.lives = s.l; state.wave = s.w; state.gold = s.g; state.kills = s.k; state.started = s.st; state.waveActive = s.wa;
+    state.breakTimer = s.bt; state.paused = s.p; state.speed = s.sp; state.gameOver = s.go; state.victory = s.v; state.endless = s.en;
+    state.spawnQueue = new Array(s.q);
+
+    const seen = new Set();
+    for (const [id, type, x, y, dir, hp, maxHp] of s.e) {
+      let e = guestEnemies.get(id);
+      if (!e) {
+        const def = ENEMY_TYPES[type];
+        e = { id, type, element: def.element, name: def.name, boss: !!def.boss, x, y, tx: x, ty: y, dir, hp, maxHp, t: Math.random() * 10, dead: false, reached: false };
+        guestEnemies.set(id, e);
+      } else { e.tx = x; e.ty = y; e.dir = dir; e.hp = hp; e.maxHp = maxHp; }
+      seen.add(id);
+    }
+    for (const id of Array.from(guestEnemies.keys())) if (!seen.has(id)) guestEnemies.delete(id);
+    state.enemies = Array.from(guestEnemies.values());
+
+    const seenT = new Set();
+    for (const [id, c, r, typeKey, stage, dir, recoil, owner, invested] of s.tw) {
+      let t = guestTowers.get(id);
+      if (!t) { t = new Tower(c, r, typeKey); t.id = id; guestTowers.set(id, t); }
+      t.stage = stage; t.dir = dir; if (recoil) t.recoil = 0.1; t.owner = owner; t.invested = invested;
+      seenT.add(id);
+    }
+    for (const id of Array.from(guestTowers.keys())) if (!seenT.has(id)) guestTowers.delete(id);
+    state.towers = Array.from(guestTowers.values());
+    if (state.selected && !guestTowers.has(state.selected.id)) selectTower(null);
+
+    state.bullets = s.b.map(([x, y, el]) => ({ x, y, element: el, color: BULLET_COLORS[el] }));
+
+    for (const [kind, p] of fx) {
+      if (kind === 'particles') spawnParticles(p[0], p[1], p[2], p[3], p[4]);
+      else if (kind === 'floater') spawnFloater(p[0], p[1], p[2], p[3]);
+      else if (kind === 'sound') Sound.play(p);
+      else if (kind === 'notice') showNotice(p[0], p[1]);
+      else if (kind === 'flash') state.hitFlash = 0.4;
+    }
+
+    if (state.paused !== prev.paused) { if (state.paused) Sound.suspend(); else Sound.resume(); }
+    if (state.gameOver && !prev.gameOver) { selectTower(null); clearPending(); presentDefeat(); }
+    else if (state.victory && !prev.victory) { selectTower(null); clearPending(); presentVictory(); }
+    else if (!state.gameOver && !state.victory && (prev.gameOver || prev.victory)) ui.overlay.classList.add('hidden');
+    if (state.started && !state.gameOver && !state.victory) Sound.startMusic(); else Sound.stopMusic();
+    updateHud();
+  }
+
+  // 친구 화면: 방장이 보낸 위치 사이를 부드럽게 이어 그림
+  function guestTick(dt) {
+    const k = Math.min(1, dt * 15);
+    const run = !state.paused && !inputLocked();
+    for (const e of state.enemies) {
+      e.x += (e.tx - e.x) * k;
+      e.y += (e.ty - e.y) * k;
+      if (run) e.t += dt * state.speed;
+    }
+    for (const t of state.towers) if (t.recoil > 0) t.recoil -= dt;
+    if (run) {
+      state.time += dt * state.speed;
+      if (state.started && !state.waveActive && state.breakTimer > 0) state.breakTimer -= dt * state.speed;
+    }
+  }
+
+  function handleNetData(data) {
+    if (!data || typeof data !== 'object') return;
+    if (data.t === 'act' && state.role === 'host') act(String(data.a), Object.assign({}, data.p || {}, { owner: 'guest' }));
+    else if (data.t === 'snap' && state.role === 'guest') applySnapshot(data.s, data.fx || []);
+  }
+
+  // ---------- 친구 연결 창 ----------
+  function setMpStatus(text) {
+    ui.mpStatus.textContent = text;
+    ui.mpStatus.classList.toggle('hidden', !text);
+  }
+  function mpMessage(text, isError) {
+    ui.mpMessage.textContent = text || '';
+    ui.mpMessage.style.color = isError ? '#ff8a80' : '#ffd54f';
+  }
+  const roomLink = (code) => location.origin + location.pathname + '?room=' + code;
+
+  function startHosting() {
+    mpMessage('방을 만드는 중...');
+    Net.host({
+      onReady: (code) => {
+        state.role = 'host';
+        ui.mpCode.textContent = code;
+        ui.mpLink.textContent = roomLink(code);
+        ui.mpHostInfo.classList.remove('hidden');
+        ui.btnMpLeave.classList.remove('hidden');
+        mpMessage('친구에게 코드나 링크를 보내 주세요. 친구가 들어오면 바로 같이 할 수 있어요.');
+        setMpStatus('👥 방 코드 ' + code + ' · 친구를 기다리는 중');
+      },
+      onConnected: () => {
+        showNotice('친구가 들어왔어요! 같이 막아요!', 3);
+        Sound.play('waveClear');
+        setMpStatus('🟢 친구 연결됨 · 방 코드 ' + Net.getCode());
+        mpMessage('친구가 들어왔어요!');
+        ui.mpPanel.classList.add('hidden');
+        netTimer = 1; // 바로 상태를 보냄
+      },
+      onData: handleNetData,
+      onDisconnected: () => {
+        showNotice('친구 연결이 끊겼어요. 같은 코드로 다시 들어올 수 있어요.', 3);
+        setMpStatus('👥 방 코드 ' + Net.getCode() + ' · 친구를 기다리는 중');
+      },
+      onError: (msg) => mpMessage(msg, true),
+    });
+  }
+
+  function joinRoom(code) {
+    mpMessage('연결하는 중... (최대 20초 정도 걸릴 수 있어요)');
+    Net.join({
+      onConnected: () => {
+        state.role = 'guest';
+        guestEnemies.clear();
+        guestTowers.clear();
+        resetState();
+        selectTower(null);
+        clearPending();
+        ui.overlay.classList.add('hidden');
+        ui.btnMpLeave.classList.remove('hidden');
+        updateHud();
+        showNotice('연결됐어요! 방장과 함께 플레이해요', 3);
+        Sound.play('waveClear');
+        setMpStatus('🟢 방장과 연결됨 · 방 코드 ' + Net.getCode());
+        ui.mpPanel.classList.add('hidden');
+      },
+      onData: handleNetData,
+      onDisconnected: () => {
+        state.role = 'solo';
+        Net.leave();
+        setMpStatus('');
+        ui.btnMpLeave.classList.add('hidden');
+        Sound.stopMusic();
+        state.gameOver = true;
+        ui.overlayTitle.textContent = '연결 끊김';
+        ui.overlayTitle.classList.remove('win');
+        ui.overlayText.textContent = '방장과의 연결이 끊겼어요. "다시 시작"을 누르면 혼자 하기로 돌아가요.';
+        ui.btnContinue.classList.add('hidden');
+        ui.overlay.classList.remove('hidden');
+      },
+      onError: (msg) => mpMessage(msg, true),
+    }, code);
+  }
+
+  function leaveRoom() {
+    Net.leave();
+    state.role = 'solo';
+    guestEnemies.clear();
+    guestTowers.clear();
+    restartGame();
+    setMpStatus('');
+    ui.btnMpLeave.classList.add('hidden');
+    ui.mpHostInfo.classList.add('hidden');
+    mpMessage('');
+    ui.mpPanel.classList.add('hidden');
+    showNotice('혼자 하기로 돌아왔어요', 2);
+  }
+
+  ui.btnMp.addEventListener('click', () => {
+    if (!Net.available()) mpMessage('연결 도구를 불러오지 못했어요. 인터넷 연결을 확인하고 새로고침해 주세요.', true);
+    ui.mpPanel.classList.remove('hidden');
+  });
+  ui.btnMpClose.addEventListener('click', () => ui.mpPanel.classList.add('hidden'));
+  ui.btnMpHost.addEventListener('click', startHosting);
+  ui.btnMpJoin.addEventListener('click', () => joinRoom(ui.mpJoinCode.value));
+  ui.mpJoinCode.addEventListener('keydown', (e) => { if (e.key === 'Enter') joinRoom(ui.mpJoinCode.value); });
+  ui.btnMpLeave.addEventListener('click', leaveRoom);
+  ui.btnMpCopy.addEventListener('click', () => {
+    const link = roomLink(Net.getCode());
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(link).then(() => mpMessage('링크를 복사했어요! 친구에게 붙여넣어 보내세요.')).catch(() => mpMessage('복사가 안 돼요. 링크를 직접 보내주세요: ' + link, true));
+    } else mpMessage('링크를 직접 보내주세요: ' + link);
+  });
+  ui.btnMpShare.addEventListener('click', () => {
+    const link = roomLink(Net.getCode());
+    if (navigator.share) navigator.share({ title: '픽셀 몬스터 디펜스 같이 하자!', text: '방 코드: ' + Net.getCode(), url: link }).catch(() => {});
+    else ui.btnMpCopy.click();
   });
 
   // ---------- 테스트용 주소 옵션 (예: index.html?autostart=1&speed=3) ----------
@@ -1095,12 +1376,30 @@
   updateMuteLabel();
   updateHud();
   if (params.get('autostart') === '1') startWave();
+  // 친구가 보낸 링크(?room=코드)로 열었으면 바로 그 방에 들어감
+  if (params.get('room')) {
+    ui.mpJoinCode.value = Net.normalizeCode(params.get('room'));
+    ui.mpPanel.classList.remove('hidden');
+    joinRoom(params.get('room'));
+  }
 
   let last = performance.now();
   function frame(now) {
     const dt = Math.min((now - last) / 1000, 0.1);
     last = now;
-    if (state.started && !state.paused && !inputLocked()) update(dt * state.speed);
+    if (state.role === 'guest') {
+      guestTick(dt);
+    } else {
+      if (state.started && !state.paused && !inputLocked()) update(dt * state.speed);
+      if (state.role === 'host' && Net.isConnected()) {
+        netTimer += dt;
+        if (netTimer >= 0.1) {
+          netTimer = 0;
+          Net.send({ t: 'snap', s: buildSnapshot(), fx: netOutbox });
+          netOutbox = [];
+        }
+      }
+    }
     updateEffects(dt * (state.paused ? 0 : state.speed));
     if (state.noticeTimer > 0) state.noticeTimer -= dt;
     render();

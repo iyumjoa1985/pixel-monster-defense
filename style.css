@@ -168,6 +168,52 @@ button:disabled { opacity: .5; cursor: default; }
   white-space: pre-wrap;
 }
 
+/* ---------- 친구와 함께 (온라인 협동) ---------- */
+#mpStatus {
+  font-size: 14px;
+  color: #ffd54f;
+  background: #33405a;
+  border-radius: 8px;
+  padding: 6px 12px;
+  margin-bottom: 8px;
+}
+#mpStatus.hidden { display: none; }
+#mpPanel {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, .65);
+  padding: 12px;
+}
+#mpPanel.hidden { display: none; }
+.panel.mp { text-align: left; max-width: 440px; width: 100%; }
+.panel.mp h2 { margin: 0 0 6px; color: var(--accent); }
+.mpHelp { color: #ccd; font-size: 14px; margin: 0 0 10px; }
+.mpRow { display: flex; gap: 8px; margin: 8px 0; flex-wrap: wrap; }
+.mpRow button { flex: 1 1 auto; }
+#mpCode { font-size: 30px; letter-spacing: 6px; color: var(--accent); font-family: Consolas, monospace; }
+.mpLink { font-size: 13px; color: #9ad7ff; word-break: break-all; margin: 4px 0; }
+#mpJoinCode {
+  flex: 1 1 140px;
+  min-width: 120px;
+  font-size: 20px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 2px solid #5a6b8f;
+  background: #1b1f2a;
+  color: #fff;
+  text-transform: uppercase;
+  letter-spacing: 5px;
+  font-family: Consolas, monospace;
+}
+#mpMessage { margin: 6px 0; font-size: 14px; min-height: 18px; color: var(--accent); }
+#btnMpLeave { background: #7a3b3b; border-color: #c06060; }
+#btnMpLeave.hidden { display: none; }
+#mpHostInfo.hidden { display: none; }
+
 /* ---------- 터치(휴대폰) 대응 ---------- */
 button { touch-action: manipulation; }
 #game {

@@ -22,8 +22,29 @@
         <button id="btnSpeed">배속 x1</button>
         <button id="btnMute" title="소리 켜기/끄기">🔊 소리</button>
         <button id="btnFull" class="touchOnly" title="전체화면">⛶ 전체화면</button>
+        <button id="btnMp" title="친구와 온라인으로 함께 하기">👥 친구와 함께</button>
       </div>
     </header>
+    <div id="mpStatus" class="hidden"></div>
+
+    <div id="mpPanel" class="hidden">
+      <div class="panel mp">
+        <h2>👥 친구와 함께 하기</h2>
+        <p class="mpHelp">한 명이 방을 만들고 다른 한 명이 코드를 넣으면 같은 게임을 함께 해요. 골드·생명·타워를 둘이 같이 씁니다.</p>
+        <div class="mpRow"><button id="btnMpHost">방 만들기</button></div>
+        <div id="mpHostInfo" class="hidden">
+          방 코드 <b id="mpCode">----</b>
+          <div id="mpLink" class="mpLink"></div>
+          <div class="mpRow"><button id="btnMpCopy">링크 복사</button><button id="btnMpShare">공유하기</button></div>
+        </div>
+        <div class="mpRow">
+          <input id="mpJoinCode" maxlength="4" placeholder="친구 코드 4글자" autocomplete="off" autocapitalize="characters">
+          <button id="btnMpJoin">들어가기</button>
+        </div>
+        <p id="mpMessage"></p>
+        <div class="mpRow"><button id="btnMpLeave" class="hidden">연결 끊고 혼자 하기</button><button id="btnMpClose">닫기</button></div>
+      </div>
+    </div>
 
     <div id="shop">
       <div id="cards"></div>
@@ -67,8 +88,10 @@
     <pre id="errlog" hidden></pre>
   </div>
 
+  <script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.5/dist/peerjs.min.js"></script>
   <script src="js/sprites.js"></script>
   <script src="js/sound.js"></script>
+  <script src="js/net.js"></script>
   <script src="js/game.js"></script>
 </body>
 </html>

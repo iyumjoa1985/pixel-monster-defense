@@ -138,6 +138,119 @@ async function clickTile(page, c, r, button) {
     await m.close();
   }
 
+  // ===== 친구 연결(온라인 협동) 테스트: 브라우저 두 개(= 기기 두 대)를 띄워 방장/친구로 실제 연결 =====
+  // (같은 브라우저의 두 탭은 뒤로 간 탭이 절전되어 게임 루프가 멈추므로, 진짜처럼 따로 띄웁니다)
+  console.log('[친구 연결]');
+  {
+    const browserB = await puppeteer.launch({ executablePath: CHROME, headless: true, args: ['--disable-gpu', '--autoplay-policy=no-user-gesture-required'] });
+    const A = await browser.newPage();  // 방장 (브라우저 1)
+    const B = await browserB.newPage(); // 친구 (브라우저 2)
+    for (const pg of [A, B]) await pg.setViewport({ width: 1000, height: 1000 });
+    const netErrors = [];
+    A.on('pageerror', (e) => netErrors.push('방장: ' + e.message));
+    B.on('pageerror', (e) => netErrors.push('친구: ' + e.message));
+    await A.goto(URL, { waitUntil: 'load' });
+    await B.goto(URL, { waitUntil: 'load' });
+    check(await A.evaluate(() => typeof Peer !== 'undefined' && Net.available()), '연결 도구(PeerJS)가 로드됨');
+
+    await A.click('#btnMp');
+    await A.click('#btnMpHost');
+    let code = '';
+    try {
+      await A.waitForFunction(() => /^[A-Z0-9]{4}$/.test(document.getElementById('mpCode').textContent), { timeout: 30000 });
+      code = await A.$eval('#mpCode', (e) => e.textContent);
+    } catch (e) { /* 아래에서 실패로 기록 */ }
+    check(/^[A-Z0-9]{4}$/.test(code), '방장이 방을 만들면 4글자 코드가 나옴 (' + (code || await A.$eval('#mpMessage', (e) => e.textContent)) + ')');
+    const aStatus = await A.$eval('#mpStatus', (e) => e.textContent);
+    check(aStatus.indexOf('방 코드 ' + code) >= 0 && aStatus.indexOf('기다리는 중') >= 0, '방장 화면에 "친구를 기다리는 중" 표시');
+    check((await A.$eval('#mpLink', (e) => e.textContent)).indexOf('?room=' + code) > 0, '공유용 링크에 방 코드가 들어 있음');
+
+    await B.click('#btnMp');
+    await B.type('#mpJoinCode', code.toLowerCase());
+    await B.click('#btnMpJoin');
+    let joined = false;
+    try {
+      await B.waitForFunction(() => __game.role === 'guest' && Net.isConnected(), { timeout: 40000 });
+      await A.waitForFunction(() => Net.isConnected(), { timeout: 10000 });
+      joined = true;
+    } catch (e) { /* 실패 */ }
+    check(joined, '친구가 코드를 넣으면 연결됨 (소문자로 넣어도 됨)' + (joined ? '' : ' — ' + await B.$eval('#mpMessage', (e) => e.textContent)));
+    if (joined) {
+      check((await B.$eval('#mpStatus', (e) => e.textContent)).indexOf('방장과 연결됨') >= 0, '친구 화면에 "방장과 연결됨" 표시');
+
+      await clickTile(B, 4, 4);
+      await A.waitForFunction(() => __game.towers.length === 1, { timeout: 5000 });
+      const at = await A.evaluate(() => ({ n: __game.towers.length, owner: __game.towers[0].owner, gold: __game.gold }));
+      check(at.n === 1 && at.owner === 'guest' && at.gold === 70, '친구가 심은 타워가 방장 게임에 생김 (친구 소유, 골드 120 → 70)');
+      await B.waitForFunction(() => __game.towers.length === 1 && __game.gold === 70, { timeout: 5000 });
+      check(true, '친구 화면에도 그 타워와 골드가 똑같이 보임');
+
+      await clickTile(A, 7, 5);
+      await B.waitForFunction(() => __game.towers.length === 2, { timeout: 5000 });
+      const bt = await B.evaluate(() => __game.towers.map((t) => t.owner));
+      check(bt.indexOf('host') >= 0 && bt.indexOf('guest') >= 0, '방장이 심은 타워도 친구 화면에 보임 (방장/친구 구분 표시)');
+
+      await clickTile(B, 4, 4);
+      await B.waitForFunction(() => __game.selected && __game.selected.c === 4, { timeout: 3000 });
+      check(await B.$eval('#btnEvolve', (b) => b.disabled), '골드가 모자라면 친구 화면의 진화 버튼도 꺼져 있음 (골드 20 < 60)');
+      await A.evaluate(() => { __game.gold = 500; });
+      await B.waitForFunction(() => __game.gold === 500 && !document.getElementById('btnEvolve').disabled, { timeout: 5000 });
+      check(true, '방장 쪽 골드가 늘면 친구 화면의 진화 버튼이 켜짐');
+      await B.click('#btnEvolve');
+      await A.waitForFunction(() => __game.towers.find((t) => t.c === 4).stage === 1, { timeout: 5000 });
+      await B.waitForFunction(() => __game.towers.find((t) => t.c === 4).stage === 1 && __game.gold === 440, { timeout: 5000 });
+      check(true, '친구의 진화 요청이 방장 게임에 적용되고(새싹이 → 잎사귀) 친구 화면 골드 500 → 440');
+
+      await B.click('#btnStart');
+      await A.waitForFunction(() => __game.started && __game.wave === 1, { timeout: 5000 });
+      await B.waitForFunction(() => __game.enemies.length > 0, { timeout: 10000 });
+      const x1 = await B.evaluate(() => __game.enemies[0].x);
+      await sleep(1000);
+      const x2 = await B.evaluate(() => (__game.enemies[0] ? __game.enemies[0].x : -999));
+      check(x2 !== x1, '친구가 웨이브를 시작하면 친구 화면에서 몬스터가 움직임');
+      await A.waitForFunction(() => (Sound.stats.shoot_grass || 0) > 0 && (Sound.stats.hit || 0) > 0, { timeout: 20000 }); // 방장 쪽에서 먼저 발사·명중
+      let guestHeard = false;
+      try { await B.waitForFunction(() => (Sound.stats.shoot_grass || 0) > 0 && (Sound.stats.hit || 0) > 0, { timeout: 5000 }); guestHeard = true; } catch (e) { /* 실패 */ }
+      check(guestHeard, '방장 쪽 소리(발사·명중)가 친구 화면에서도 울림');
+      await A.screenshot({ path: path.join(__dirname, 'shot_host.png') });
+      await B.screenshot({ path: path.join(__dirname, 'shot_guest.png') });
+
+      await B.click('#btnPause');
+      await A.waitForFunction(() => __game.paused, { timeout: 5000 });
+      await B.waitForFunction(() => __game.paused && document.getElementById('btnPause').textContent === '계속하기', { timeout: 5000 });
+      check(true, '친구가 일시정지하면 방장 게임도 멈추고 친구 버튼이 "계속하기"로 바뀜');
+      await B.click('#btnPause');
+      await A.waitForFunction(() => !__game.paused, { timeout: 5000 });
+
+      await A.evaluate(() => { __game.lives = 1; __game.speed = 10; });
+      await A.waitForFunction(() => __game.gameOver, { timeout: 120000 });
+      await B.waitForFunction(() => __game.gameOver && !document.getElementById('overlay').classList.contains('hidden'), { timeout: 5000 });
+      check((await B.$eval('#overlayTitle', (e) => e.textContent)) === '패배!', '방장 게임이 끝나면 친구 화면에도 패배 창이 뜸');
+
+      await B.click('#btnRestart');
+      await A.waitForFunction(() => !__game.gameOver && __game.wave === 0 && __game.towers.length === 0, { timeout: 5000 });
+      await B.waitForFunction(() => !__game.gameOver && __game.wave === 0 && __game.towers.length === 0 && document.getElementById('overlay').classList.contains('hidden'), { timeout: 5000 });
+      check(true, '친구가 다시 시작을 누르면 둘 다 처음부터');
+
+      await B.click('#btnMp');
+      await B.click('#btnMpLeave');
+      await A.waitForFunction(() => __game.notice.indexOf('친구 연결이 끊겼') === 0, { timeout: 10000 });
+      check((await B.evaluate(() => __game.role)) === 'solo', '친구가 나가면 방장에게 알림이 뜨고 친구는 혼자 모드로 돌아감');
+
+      await B.close();
+      const C = await browserB.newPage();
+      await C.setViewport({ width: 1000, height: 1000 });
+      await C.goto(URL + '?room=' + code, { waitUntil: 'load' });
+      let rejoined = false;
+      try { await C.waitForFunction(() => __game.role === 'guest' && Net.isConnected(), { timeout: 40000 }); rejoined = true; } catch (e) { /* 실패 */ }
+      check(rejoined, '친구가 링크(?room=코드)로 열면 자동으로 다시 들어옴');
+      await C.close();
+    }
+    check(netErrors.length === 0, '친구 연결 중 자바스크립트 오류 없음' + (netErrors.length ? ': ' + netErrors.join(' | ') : ''));
+    await A.close();
+    await browserB.close();
+  }
+
   // ===== 컴퓨터(마우스) 테스트 =====
   console.log('[컴퓨터 화면]');
   const page = await browser.newPage();
