@@ -50,6 +50,24 @@ button {
 button:hover { background: #4e5f82; }
 button:disabled { opacity: .5; cursor: default; }
 
+/* ---------- 난이도 ---------- */
+#diffBar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  background: var(--panel);
+  padding: 6px 14px;
+  border-radius: 10px;
+  margin-bottom: 8px;
+  font-size: 14px;
+}
+.diffLabel { font-weight: 700; margin-right: 4px; }
+.diff { padding: 5px 12px; font-size: 14px; }
+.diff.selected { border-color: var(--accent); background: #4e5f82; color: var(--accent); font-weight: 700; }
+.diff:disabled { opacity: .45; }
+#diffDesc { margin-left: 6px; }
+
 /* ---------- 타워 상점 ---------- */
 #shop {
   background: var(--panel);

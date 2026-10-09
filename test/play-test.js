@@ -19,8 +19,11 @@ const snap = (page) => page.evaluate(() => {
   const boss = __game.enemies.find((e) => e.boss);
   const ctx = Sound.getContext();
   let bestStored = null;
-  try { bestStored = JSON.parse(localStorage.getItem('pixelDefense.best') || 'null'); } catch (e) { bestStored = 'error'; }
+  try { bestStored = JSON.parse(localStorage.getItem('pixelDefense.best.' + __game.difficulty) || 'null'); } catch (e) { bestStored = 'error'; }
+  const diffSel = document.querySelector('#diffBar .diff.selected');
   return {
+    difficulty: __game.difficulty, diffSelected: diffSel ? diffSel.dataset.diff : null,
+    diffDisabled: document.querySelector('#diffBar .diff').disabled, diffDesc: document.getElementById('diffDesc').textContent,
     lives: __game.lives, wave: __game.wave, started: __game.started, waveActive: __game.waveActive,
     gameOver: __game.gameOver, victory: __game.victory, endless: __game.endless, paused: __game.paused, speed: __game.speed,
     enemies: __game.enemies.length, queue: __game.spawnQueue.length, time: __game.time, kills: __game.kills, gold: __game.gold,
@@ -73,6 +76,7 @@ async function clickTile(page, c, r, button) {
     m.on('pageerror', (e) => merrors.push(e.message));
     await m.goto(URL, { waitUntil: 'load' });
     await m.evaluate(() => localStorage.clear());
+    await m.tap('.diff[data-diff="hard"]'); // 숫자를 맞추기 위해 어려움(생명 10, 골드 120)으로
     const tapTile = async (c, r) => {
       const pt = await m.evaluate((c, r) => {
         const rect = document.getElementById('game').getBoundingClientRect();
@@ -96,6 +100,7 @@ async function clickTile(page, c, r, button) {
       notice: __game.notice,
     }));
     let ms = await msnap();
+    check(ms.gold === 120 && ms.towers === 0, '난이도 버튼을 손가락으로 눌러 바꿀 수 있음 (어려움 → 골드 120)');
     check(ms.noHScroll && ms.canvasW <= ms.innerW, '세로 화면에서 가로 스크롤 없음 (게임판 ' + Math.round(ms.canvasW) + 'px / 화면 ' + ms.innerW + 'px)');
     check(ms.minorHidden, '좁은 화면에서는 덜 중요한 숫자(남은 몬스터·처치·타워)를 숨김');
     check(!ms.coarse || (ms.keyHidden && ms.touchHelpShown), '터치 기기에서는 숫자키 안내를 숨기고 터치 안내를 보여줌 (터치 인식: ' + ms.coarse + ')');
@@ -151,6 +156,7 @@ async function clickTile(page, c, r, button) {
     B.on('pageerror', (e) => netErrors.push('친구: ' + e.message));
     await A.goto(URL, { waitUntil: 'load' });
     await B.goto(URL, { waitUntil: 'load' });
+    await A.click('.diff[data-diff="hard"]'); // 방장은 어려움, 친구 브라우저는 기본(중간)인 채로 시작
     check(await A.evaluate(() => typeof Peer !== 'undefined' && Net.available()), '연결 도구(PeerJS)가 로드됨');
 
     await A.click('#btnMp');
@@ -177,6 +183,9 @@ async function clickTile(page, c, r, button) {
     check(joined, '친구가 코드를 넣으면 연결됨 (소문자로 넣어도 됨)' + (joined ? '' : ' — ' + await B.$eval('#mpMessage', (e) => e.textContent)));
     if (joined) {
       check((await B.$eval('#mpStatus', (e) => e.textContent)).indexOf('방장과 연결됨') >= 0, '친구 화면에 "방장과 연결됨" 표시');
+      await B.waitForFunction(() => __game.difficulty === 'hard' && __game.gold === 120, { timeout: 5000 });
+      const bd = await B.evaluate(() => ({ disabled: document.querySelector('#diffBar .diff').disabled, desc: document.getElementById('diffDesc').textContent }));
+      check(bd.disabled && bd.desc.indexOf('방장이 정해요') > 0, '친구 화면은 방장 난이도(어려움)를 따르고 난이도 버튼이 잠김');
 
       await clickTile(B, 4, 4);
       await A.waitForFunction(() => __game.towers.length === 1, { timeout: 5000 });
@@ -277,6 +286,7 @@ async function clickTile(page, c, r, button) {
       bossLives: __rules.ENEMY_TYPES.kingmongle.livesDamage, magmaLives: __rules.ENEMY_TYPES.magma.livesDamage,
       desc1: __rules.describeWave(1), desc10: __rules.describeWave(10), victoryWave: __rules.VICTORY_WAVE,
       noteA4: Math.round(Sound.NOTE.A4), noteC4: Math.round(Sound.NOTE.C4 * 10) / 10,
+      diffs: __rules.DIFFICULTIES,
     };
   });
   check(rules.mult[0] === 1.5 && rules.mult[1] === 1.5 && rules.mult[2] === 1.5, '상성: 불>풀, 풀>물, 물>불 은 1.5배');
@@ -289,9 +299,17 @@ async function clickTile(page, c, r, button) {
   check(rules.noteA4 === 440 && rules.noteC4 === 261.6, '음계 계산: A4 = 440Hz, C4 = 261.6Hz');
 
   let s = await snap(page);
-  check(s.lives === 10 && s.wave === 0 && !s.started && s.towers.length === 0 && s.gold === START_GOLD, '처음엔 생명 10, 웨이브 0, 타워 0, 골드 120');
+  check(s.difficulty === 'normal' && s.diffSelected === 'normal' && s.lives === 15 && s.gold === 150, '기본 난이도는 중간: 생명 15, 시작 골드 150');
+  check(rules.diffs.easy.hp === 0.7 && rules.diffs.normal.hp === 0.85 && rules.diffs.hard.hp === 1, '난이도별 몬스터 체력 배율 70% / 85% / 100%');
+  await page.click('.diff[data-diff="easy"]');
+  s = await snap(page);
+  check(s.difficulty === 'easy' && s.lives === 20 && s.gold === 200 && s.diffDesc.indexOf('생명 20') === 0, '쉬움을 고르면 생명 20, 시작 골드 200');
+  await page.click('.diff[data-diff="hard"]');
+  s = await snap(page);
+  check(s.difficulty === 'hard' && s.lives === 10 && s.gold === START_GOLD && !s.diffDisabled, '어려움을 고르면 생명 10, 시작 골드 120 (이후 검사는 어려움 기준)');
+  check(s.wave === 0 && !s.started && s.towers.length === 0, '처음엔 웨이브 0, 타워 0');
   check(s.hud.wave === '0 / 20' && s.hud.best === '-' && s.bestStored === null, '웨이브 "0 / 20", 최고 기록은 아직 없음("-")');
-  check(!s.sound.hasCtx && !s.sound.muted && s.hud.mute === '🔊 소리', '클릭 전에는 소리 장치가 아직 안 켜져 있고, 소리는 켜짐 상태');
+  check(!s.sound.muted && s.hud.mute === '🔊 소리', '처음에는 소리가 켜짐 상태');
 
   // --- 소리 켜기/끄기 + 저장 ---
   await page.click('.card[data-type="fire"]');  // 첫 클릭 → 소리 장치 켜짐
@@ -354,6 +372,7 @@ async function clickTile(page, c, r, button) {
   await page.click('#btnSpeed'); await page.click('#btnSpeed'); // 배속 x3
   s = await snap(page);
   check(s.sound.musicOn, '웨이브를 시작하면 배경음이 나옴');
+  check(s.diffDisabled && s.diffDesc.indexOf('다시 시작하면') > 0, '게임 중에는 난이도 버튼이 잠김');
   let sawBullet = false;
   for (let i = 0; i < 12; i++) { await sleep(250); if ((await snap(page)).bullets > 0) { sawBullet = true; break; } }
   check(sawBullet, '타워가 발사함');
@@ -408,7 +427,13 @@ async function clickTile(page, c, r, button) {
   await page.click('#btnRestart');
   s = await snap(page);
   check(s.lives === 10 && s.wave === 0 && s.towers.length === 0 && s.gold === START_GOLD && s.overlayHidden && !s.victory && !s.endless, '다시 시작하면 처음부터');
-  check(s.hud.best === '10웨이브', '다시 시작해도 최고 기록은 남아 있음');
+  check(s.hud.best === '10웨이브' && !s.diffDisabled, '다시 시작해도 최고 기록은 남아 있고 난이도 버튼이 다시 열림');
+  await page.click('.diff[data-diff="easy"]');
+  s = await snap(page);
+  check(s.difficulty === 'easy' && s.hud.best === '-' && s.lives === 20, '쉬움으로 바꾸면 쉬움 기록은 아직 없음("-")');
+  await page.click('.diff[data-diff="hard"]');
+  s = await snap(page);
+  check(s.difficulty === 'hard' && s.hud.best === '10웨이브' && s.lives === 10, '어려움으로 돌아오면 어려움 기록 10웨이브가 다시 보임 (난이도별 기록)');
   await page.evaluate(() => { __game.gold = 5000; });
   const spots = [[4, 4], [7, 5], [4, 7], [9, 3], [11, 3], [10, 7], [6, 9], [13, 9]];
   const keys = ['Digit1', 'Digit2', 'Digit3'];

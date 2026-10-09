@@ -12,8 +12,16 @@
   const TILE = 40;          // 칸 하나 크기(픽셀)
   const COLS = 16;          // 가로 칸 수
   const ROWS = 12;          // 세로 칸 수
-  const START_LIVES = 10;   // 시작 생명
-  const START_GOLD = 120;   // 시작 골드
+  // 난이도: 생명, 시작 골드, 몬스터 체력 배율, 몬스터 속도 배율, 처치 골드 배율
+  const DIFFICULTIES = {
+    easy:   { label: '쉬움',   lives: 20, gold: 200, hp: 0.7,  speed: 0.9, reward: 1.3 },
+    normal: { label: '중간',   lives: 15, gold: 150, hp: 0.85, speed: 1,   reward: 1.15 },
+    hard:   { label: '어려움', lives: 10, gold: 120, hp: 1,    speed: 1,   reward: 1 },
+  };
+  const DIFF_KEY = 'pixelDefense.difficulty';
+  let difficulty = 'normal';
+  try { if (DIFFICULTIES[localStorage.getItem(DIFF_KEY)]) difficulty = localStorage.getItem(DIFF_KEY); } catch (e) { /* 기본값 사용 */ }
+  const diff = () => DIFFICULTIES[difficulty];
   const SELL_RATIO = 0.7;   // 타워를 팔면 지금까지 쓴 골드의 70%를 돌려받음
   const SPRITE_SCALE = 3;   // 12픽셀 그림을 3배로 키워 36픽셀로
   const SPAWN_GAP = 0.9;    // 몬스터가 나오는 간격(초)
@@ -66,21 +74,23 @@
     btnMpShare: document.getElementById('btnMpShare'),
     btnMpLeave: document.getElementById('btnMpLeave'),
     btnMpClose: document.getElementById('btnMpClose'),
+    diffButtons: Array.from(document.querySelectorAll('#diffBar .diff')),
+    diffDesc: document.getElementById('diffDesc'),
   };
 
-  // ---------- 최고 기록 (브라우저에 저장되어 다음에 켜도 남아요) ----------
-  const BEST_KEY = 'pixelDefense.best';
+  // ---------- 최고 기록 (난이도별로 따로, 브라우저에 저장되어 다음에 켜도 남아요) ----------
+  const bestKey = () => 'pixelDefense.best.' + difficulty;
   function loadBest() {
     try {
-      const b = JSON.parse(localStorage.getItem(BEST_KEY) || 'null');
+      const b = JSON.parse(localStorage.getItem(bestKey()) || 'null');
       if (b && typeof b.wave === 'number') return { wave: b.wave, kills: b.kills || 0, victories: b.victories || 0 };
     } catch (e) { /* 저장소를 못 쓰면 기록 없음으로 */ }
     return { wave: 0, kills: 0, victories: 0 };
   }
   function saveBest() {
-    try { localStorage.setItem(BEST_KEY, JSON.stringify(best)); } catch (e) { /* 무시 */ }
+    try { localStorage.setItem(bestKey(), JSON.stringify(best)); } catch (e) { /* 무시 */ }
   }
-  const best = loadBest();
+  let best = loadBest();
   // 게임이 끝났을 때 기록 갱신. 최고 웨이브가 올라갔으면 true
   function recordResult(won) {
     let improved = false;
@@ -196,8 +206,8 @@
       const def = ENEMY_TYPES[type];
       this.type = type;
       this.element = def.element;
-      this.speed = def.speed * (1 + (wave - 1) * 0.06);           // 웨이브가 오를수록 조금씩 빨라짐
-      this.maxHp = Math.round(def.hp * (1 + (wave - 1) * 0.2));   // 체력도 조금씩 늘어남
+      this.speed = def.speed * (1 + (wave - 1) * 0.06) * diff().speed;            // 웨이브가 오를수록 조금씩 빨라짐
+      this.maxHp = Math.max(1, Math.round(def.hp * (1 + (wave - 1) * 0.2) * diff().hp)); // 체력도 조금씩 늘어남 (난이도 반영)
       this.hp = this.maxHp;
       this.x = WAYPOINTS[0].x;
       this.y = WAYPOINTS[0].y;
@@ -246,7 +256,7 @@
         this.hp = 0;
         this.dead = true;
         state.kills += 1;
-        const reward = ENEMY_TYPES[this.type].reward;
+        const reward = Math.round(ENEMY_TYPES[this.type].reward * diff().reward);
         state.gold += reward;
         spawnParticles(this.x, this.y, ENEMY_TYPES[this.type].color, 12, 130);
         spawnFloater(this.x, this.y - 16, '+' + reward, '#ffd54f');
@@ -387,7 +397,8 @@
   // ---------- 게임 상태 ----------
   const state = {};
   function resetState() {
-    state.lives = START_LIVES;
+    state.difficulty = difficulty;
+    state.lives = diff().lives;
     state.wave = 0;
     state.enemies = [];
     state.towers = [];
@@ -395,7 +406,7 @@
     state.particles = [];
     state.floaters = [];
     state.kills = 0;
-    state.gold = START_GOLD;
+    state.gold = diff().gold;
     state.spawned = {};                                   // 지금까지 나온 몬스터 수 (기록용)
     for (const k of Object.keys(ENEMY_TYPES)) state.spawned[k] = 0;
     state.victory = false;    // 20웨이브를 막아냈는지
@@ -443,7 +454,7 @@
     const newRecord = recordResult(false);
     ui.overlayTitle.textContent = '패배!';
     ui.overlayTitle.classList.remove('win');
-    ui.overlayText.textContent = '몬스터가 마을에 도착했어요. ' + state.wave + '웨이브까지 버텼고, ' + state.kills + '마리를 물리쳤어요. (타워 ' + state.towers.length + '개, 남은 골드 ' + state.gold + ')'
+    ui.overlayText.textContent = '몬스터가 마을에 도착했어요. ' + state.wave + '웨이브까지 버텼고, ' + state.kills + '마리를 물리쳤어요. (' + diff().label + ' 난이도, 타워 ' + state.towers.length + '개, 남은 골드 ' + state.gold + ')'
       + (newRecord ? ' 🏆 최고 기록 갱신!' : '');
     ui.btnContinue.classList.add('hidden');
     ui.overlay.classList.remove('hidden');
@@ -463,7 +474,7 @@
     recordResult(true);
     ui.overlayTitle.textContent = '승리!';
     ui.overlayTitle.classList.add('win');
-    ui.overlayText.textContent = VICTORY_WAVE + '웨이브를 모두 막아내고 마을을 지켰어요! ' + state.kills + '마리를 물리쳤고, 생명이 ' + state.lives + ' 남았어요. (승리 ' + best.victories + '회째)';
+    ui.overlayText.textContent = VICTORY_WAVE + '웨이브를 모두 막아내고 마을을 지켰어요! ' + state.kills + '마리를 물리쳤고, 생명이 ' + state.lives + ' 남았어요. (' + diff().label + ' 난이도 승리 ' + best.victories + '회째)';
     ui.btnContinue.classList.remove('hidden');
     ui.overlay.classList.remove('hidden');
   }
@@ -505,6 +516,31 @@
     updateHud();
   }
 
+  // ---------- 난이도 바꾸기 (게임 시작 전이나 끝난 뒤에만) ----------
+  const diffLocked = () => (state.started && !state.gameOver && !state.victory) || state.role === 'guest';
+  function setDifficulty(key) {
+    if (!DIFFICULTIES[key]) return false;
+    if (state.role === 'guest') { showNotice('난이도는 방장만 바꿀 수 있어요'); return false; }
+    if (state.started && !state.gameOver && !state.victory) { showNotice('게임 중에는 난이도를 바꿀 수 없어요. 다시 시작한 뒤 골라 주세요'); Sound.play('error'); return false; }
+    difficulty = key;
+    try { localStorage.setItem(DIFF_KEY, key); } catch (e) { /* 무시 */ }
+    best = loadBest();
+    restartGame();
+    showNotice('난이도: ' + diff().label + ' (생명 ' + diff().lives + ', 시작 골드 ' + diff().gold + ')', 2.5);
+    Sound.play('place');
+    return true;
+  }
+  function refreshDiffBar() {
+    const locked = diffLocked();
+    for (const b of ui.diffButtons) {
+      b.classList.toggle('selected', b.dataset.diff === difficulty);
+      b.disabled = locked;
+    }
+    const d = diff();
+    ui.diffDesc.textContent = '생명 ' + d.lives + ' · 시작 골드 ' + d.gold + ' · 몬스터 체력 ' + Math.round(d.hp * 100) + '% · 처치 골드 ' + Math.round(d.reward * 100) + '%'
+      + (state.role === 'guest' ? ' · 방장이 정해요' : (state.started && !state.gameOver && !state.victory ? ' · 다시 시작하면 바꿀 수 있어요' : ''));
+  }
+
   // ---------- 모든 조작은 act()를 거침: 친구 화면이면 방장에게 보내고, 방장/혼자면 직접 실행 ----------
   const towerById = (id) => state.towers.find((t) => t.id === id) || null;
   function act(a, p) {
@@ -520,6 +556,7 @@
       case 'speed': cycleSpeed(); return true;
       case 'restart': restartGame(); return true;
       case 'continue': continueEndless(); return true;
+      case 'difficulty': return setDifficulty(p.key);
       default: return false;
     }
   }
@@ -958,7 +995,7 @@
     }
 
     if (!state.started) {
-      drawMessage('타워를 고르고 풀밭을 클릭해 심은 뒤, 웨이브 시작!', '1웨이브: ' + describeWave(1) + ' · ' + VICTORY_WAVE + '웨이브를 막으면 승리!');
+      drawMessage('타워를 고르고 풀밭을 클릭해 심은 뒤, 웨이브 시작!', '[' + diff().label + '] 1웨이브: ' + describeWave(1) + ' · ' + VICTORY_WAVE + '웨이브를 막으면 승리!');
     } else if (!state.waveActive && !state.gameOver && !state.victory) {
       drawMessage('다음 웨이브까지 ' + Math.ceil(state.breakTimer) + '초', (state.wave + 1) + '웨이브: ' + describeWave(state.wave + 1));
     } else if (state.paused) {
@@ -984,6 +1021,7 @@
     ui.btnPause.textContent = state.paused ? '계속하기' : '일시정지';
     ui.btnSpeed.textContent = '배속 x' + state.speed;
     ui.best.textContent = best.wave > 0 ? best.wave + '웨이브' + (best.victories > 0 ? ' (승리 ' + best.victories + '회)' : '') : '-';
+    refreshDiffBar();
     refreshShop();
     refreshInfo(false);
   }
@@ -1140,6 +1178,12 @@
   });
   ui.btnSpeed.addEventListener('click', () => act('speed'));
   ui.btnRestart.addEventListener('click', () => act('restart'));
+  for (const b of ui.diffButtons) {
+    b.addEventListener('click', () => {
+      if (state.role === 'guest') { showNotice('난이도는 방장만 바꿀 수 있어요'); return; }
+      act('difficulty', { key: b.dataset.diff });
+    });
+  }
   ui.btnEvolve.addEventListener('click', () => { if (state.selected && !inputLocked()) act('evolve', { id: state.selected.id }); });
   ui.btnSell.addEventListener('click', () => { if (state.selected && !inputLocked()) act('sell', { id: state.selected.id }); });
   window.addEventListener('keydown', (e) => {
@@ -1174,6 +1218,7 @@
 
   function buildSnapshot() {
     return {
+      d: difficulty,
       l: state.lives, w: state.wave, g: state.gold, k: state.kills, st: state.started, wa: state.waveActive,
       bt: Math.round(state.breakTimer * 10) / 10, p: state.paused, sp: state.speed, go: state.gameOver, v: state.victory,
       en: state.endless, q: state.spawnQueue.length,
@@ -1186,6 +1231,7 @@
   function applySnapshot(s, fx) {
     lastSnapAt = performance.now();
     const prev = { gameOver: state.gameOver, victory: state.victory, paused: state.paused };
+    if (s.d && DIFFICULTIES[s.d] && s.d !== difficulty) { difficulty = s.d; state.difficulty = s.d; best = loadBest(); }
     state.lives = s.l; state.wave = s.w; state.gold = s.g; state.kills = s.k; state.started = s.st; state.waveActive = s.wa;
     state.breakTimer = s.bt; state.paused = s.p; state.speed = s.sp; state.gameOver = s.go; state.victory = s.v; state.endless = s.en;
     state.spawnQueue = new Array(s.q);
@@ -1369,7 +1415,7 @@
   const params = new URLSearchParams(location.search);
   if (params.get('speed')) state.speed = Math.max(1, Number(params.get('speed')) || 1);
   window.__game = state; // 자동 테스트에서 상태를 들여다보기 위한 창구
-  window.__rules = { typeMultiplier, TOWER_TYPES, ENEMY_TYPES, waveComposition, describeWave, VICTORY_WAVE, best };
+  window.__rules = { typeMultiplier, TOWER_TYPES, ENEMY_TYPES, waveComposition, describeWave, VICTORY_WAVE, DIFFICULTIES, getBest: () => best };
 
   // ---------- 시작 ----------
   buildShop();
