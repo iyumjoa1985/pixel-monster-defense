@@ -63,6 +63,81 @@ async function clickTile(page, c, r, button) {
 
 (async () => {
   const browser = await puppeteer.launch({ executablePath: CHROME, headless: true, args: ['--disable-gpu', '--autoplay-policy=no-user-gesture-required'] });
+
+  // ===== 휴대폰(터치) 테스트: 390×844 세로 화면, 손가락 탭 =====
+  console.log('[휴대폰 화면]');
+  {
+    const m = await browser.newPage();
+    await m.setViewport({ width: 390, height: 844, isMobile: true, hasTouch: true, deviceScaleFactor: 2 });
+    const merrors = [];
+    m.on('pageerror', (e) => merrors.push(e.message));
+    await m.goto(URL, { waitUntil: 'load' });
+    await m.evaluate(() => localStorage.clear());
+    const tapTile = async (c, r) => {
+      const pt = await m.evaluate((c, r) => {
+        const rect = document.getElementById('game').getBoundingClientRect();
+        return { x: rect.left + (c * 40 + 20) * rect.width / 640, y: rect.top + (r * 40 + 20) * rect.height / 480 };
+      }, c, r);
+      await m.touchscreen.tap(pt.x, pt.y);
+    };
+    const msnap = () => m.evaluate(() => ({
+      towers: __game.towers.length, pending: __game.pending, gold: __game.gold,
+      selected: __game.selected ? [__game.selected.c, __game.selected.r] : null,
+      barHidden: document.getElementById('placeBar').classList.contains('hidden'),
+      barText: document.getElementById('placeText').textContent,
+      okText: document.getElementById('btnPlaceOk').textContent, okDisabled: document.getElementById('btnPlaceOk').disabled,
+      infoHidden: document.getElementById('info').classList.contains('hidden'),
+      coarse: matchMedia('(pointer: coarse)').matches,
+      keyHidden: getComputedStyle(document.querySelector('.card .key')).display === 'none',
+      touchHelpShown: getComputedStyle(document.querySelector('.touchHelp')).display !== 'none',
+      minorHidden: getComputedStyle(document.querySelector('.stat.minor')).display === 'none',
+      noHScroll: document.documentElement.scrollWidth <= window.innerWidth + 1,
+      canvasW: document.getElementById('game').getBoundingClientRect().width, innerW: window.innerWidth,
+      notice: __game.notice,
+    }));
+    let ms = await msnap();
+    check(ms.noHScroll && ms.canvasW <= ms.innerW, '세로 화면에서 가로 스크롤 없음 (게임판 ' + Math.round(ms.canvasW) + 'px / 화면 ' + ms.innerW + 'px)');
+    check(ms.minorHidden, '좁은 화면에서는 덜 중요한 숫자(남은 몬스터·처치·타워)를 숨김');
+    check(!ms.coarse || (ms.keyHidden && ms.touchHelpShown), '터치 기기에서는 숫자키 안내를 숨기고 터치 안내를 보여줌 (터치 인식: ' + ms.coarse + ')');
+    await tapTile(4, 4);
+    ms = await msnap();
+    check(ms.towers === 0 && ms.pending && ms.pending.c === 4 && ms.pending.r === 4 && !ms.barHidden, '풀밭을 한 번 누르면 심지 않고 미리보기 (안내창 보임)');
+    check(ms.barText.indexOf('새싹이를 여기에 심을까요?') === 0 && ms.okText === '심기 (50골드)', '안내창 문구: "' + ms.barText + '"');
+    await tapTile(4, 4);
+    ms = await msnap();
+    check(ms.towers === 1 && !ms.pending && ms.barHidden && ms.gold === 70, '같은 곳을 다시 누르면 심어짐 (골드 120 → 70), 안내창 닫힘');
+    await tapTile(7, 5);
+    await m.tap('#btnPlaceCancel');
+    ms = await msnap();
+    check(ms.towers === 1 && !ms.pending && ms.barHidden, '취소 버튼을 누르면 미리보기가 사라짐');
+    await tapTile(7, 5);
+    await m.tap('#btnPlaceOk');
+    ms = await msnap();
+    check(ms.towers === 2 && ms.gold === 20 && ms.barHidden, '[심기] 버튼으로도 심어짐 (골드 70 → 20)');
+    await tapTile(10, 4);
+    ms = await msnap();
+    check(ms.pending && ms.okDisabled && ms.barText.indexOf('골드 부족') > 0, '골드가 모자라면 심기 버튼이 꺼지고 "골드 부족" 표시');
+    await tapTile(1, 2);
+    ms = await msnap();
+    check(!ms.pending && ms.barHidden && ms.notice.indexOf('길 위') === 0, '길을 누르면 미리보기가 사라지고 안내가 뜸');
+    await tapTile(4, 4);
+    ms = await msnap();
+    check(ms.selected && ms.selected[0] === 4 && !ms.infoHidden, '심은 타워를 누르면 정보창(진화·팔기)이 나옴');
+    await m.tap('#btnSell');
+    ms = await msnap();
+    check(ms.towers === 1 && ms.gold === 55 && ms.infoHidden, '팔기 버튼으로 팔림 (오른쪽 클릭 없이, 골드 20 → 55)');
+    await m.screenshot({ path: path.join(__dirname, 'shot_mobile.png'), fullPage: true });
+    await m.setViewport({ width: 844, height: 390, isMobile: true, hasTouch: true, deviceScaleFactor: 2 });
+    await sleep(300);
+    ms = await msnap();
+    check(ms.noHScroll, '가로 화면에서도 가로 스크롤 없음');
+    await m.screenshot({ path: path.join(__dirname, 'shot_mobile_land.png') });
+    check(merrors.length === 0, '휴대폰 화면에서 자바스크립트 오류 없음' + (merrors.length ? ': ' + merrors.join(' | ') : ''));
+    await m.close();
+  }
+
+  // ===== 컴퓨터(마우스) 테스트 =====
+  console.log('[컴퓨터 화면]');
   const page = await browser.newPage();
   await page.setViewport({ width: 1000, height: 1000 });
   const errors = [];

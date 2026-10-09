@@ -12,15 +12,16 @@
       <div class="stat">💰 골드 <span id="gold">120</span></div>
       <div class="stat">❤️ 생명 <span id="lives">10</span></div>
       <div class="stat">🌊 웨이브 <span id="wave">0</span></div>
-      <div class="stat">👾 남은 몬스터 <span id="enemies">0</span></div>
-      <div class="stat">⚔️ 처치 <span id="kills">0</span></div>
-      <div class="stat">🌱 타워 <span id="towers">0</span></div>
+      <div class="stat minor">👾 남은 몬스터 <span id="enemies">0</span></div>
+      <div class="stat minor">⚔️ 처치 <span id="kills">0</span></div>
+      <div class="stat minor">🌱 타워 <span id="towers">0</span></div>
       <div class="stat">🏆 최고 <span id="best">-</span></div>
       <div class="controls">
         <button id="btnStart">웨이브 시작</button>
         <button id="btnPause">일시정지</button>
         <button id="btnSpeed">배속 x1</button>
         <button id="btnMute" title="소리 켜기/끄기">🔊 소리</button>
+        <button id="btnFull" class="touchOnly" title="전체화면">⛶ 전체화면</button>
       </div>
     </header>
 
@@ -28,7 +29,8 @@
       <div id="cards"></div>
       <div class="typeChart">
         상성: 🔥불 → 🌿풀 → 💧물 → 🔥불 순서로 <b>1.5배</b> 강해요 (반대면 0.6배).
-        숫자키 1·2·3으로 타워를 고르고, 풀밭을 클릭해 심어요. 심은 타워를 클릭하면 진화할 수 있어요.
+        <span class="mouseHelp">숫자키 1·2·3으로 타워를 고르고, 풀밭을 클릭해 심어요. 심은 타워를 클릭하면 진화할 수 있어요.</span>
+        <span class="touchHelp">카드를 골라 풀밭을 한 번 누르면 미리보기, 한 번 더 누르면 심어요. 심은 타워를 누르면 진화·팔기 버튼이 나와요.</span>
       </div>
     </div>
 
@@ -53,6 +55,12 @@
           </div>
         </div>
       </div>
+    </div>
+
+    <div id="placeBar" class="hidden">
+      <span id="placeText">여기에 심을까요?</span>
+      <button id="btnPlaceOk">심기</button>
+      <button id="btnPlaceCancel">취소</button>
     </div>
 
     <p id="hint">몬스터들이 길을 따라 마을로 걸어옵니다. 마을에 도착하면 생명이 1 줄어요. 몬스터를 물리쳐 골드를 모으고, 타워를 심고 진화시켜서 막아보세요! 10웨이브마다 보스가 나오고(마을에 닿으면 생명 -5), 20웨이브를 막아내면 승리예요.</p>

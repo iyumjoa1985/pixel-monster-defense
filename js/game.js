@@ -46,7 +46,12 @@
     btnSell: document.getElementById('btnSell'),
     btnContinue: document.getElementById('btnContinue'),
     btnMute: document.getElementById('btnMute'),
+    btnFull: document.getElementById('btnFull'),
     best: document.getElementById('best'),
+    placeBar: document.getElementById('placeBar'),
+    placeText: document.getElementById('placeText'),
+    btnPlaceOk: document.getElementById('btnPlaceOk'),
+    btnPlaceCancel: document.getElementById('btnPlaceCancel'),
   };
 
   // ---------- 최고 기록 (브라우저에 저장되어 다음에 켜도 남아요) ----------
@@ -386,6 +391,7 @@
     state.time = 0;
     state.hover = null;
     state.selected = null;
+    state.pending = null;     // 터치에서 "여기에 심을까요?" 미리보기 중인 칸
     state.shopType = state.shopType || 'grass'; // 상점에서 고른 타워 종류
     state.notice = '';
     state.noticeTimer = 0;
@@ -411,6 +417,7 @@
   function gameOver() {
     state.gameOver = true;
     selectTower(null);
+    clearPending();
     Sound.stopMusic();
     Sound.play('defeat');
     const newRecord = recordResult(false);
@@ -426,6 +433,7 @@
   function victory() {
     state.victory = true;
     selectTower(null);
+    clearPending();
     Sound.stopMusic();
     Sound.play('victory');
     recordResult(true);
@@ -458,7 +466,34 @@
   }
   function selectTower(t) {
     state.selected = t;
+    if (t) clearPending();
     refreshInfo(true);
+  }
+
+  // ---------- 터치용 "여기에 심을까요?" 미리보기 ----------
+  function setPending(c, r) {
+    state.pending = { c, r };
+    state.hover = { c, r };
+    updatePlaceBar();
+    ui.placeBar.classList.remove('hidden');
+  }
+  function clearPending() {
+    if (!state.pending) return;
+    state.pending = null;
+    state.hover = null;
+    ui.placeBar.classList.add('hidden');
+  }
+  function updatePlaceBar() {
+    if (!state.pending) return;
+    const def = TOWER_TYPES[state.shopType].stages[0];
+    ui.placeText.textContent = def.name + '를 여기에 심을까요? (' + def.cost + '골드' + (canAfford(state.shopType) ? '' : ', 골드 부족') + ')';
+    ui.btnPlaceOk.textContent = '심기 (' + def.cost + '골드)';
+    ui.btnPlaceOk.disabled = !canAfford(state.shopType);
+  }
+  function confirmPending() {
+    if (!state.pending) return;
+    const { c, r } = state.pending;
+    if (placeTower(c, r, state.shopType)) clearPending();
   }
   function placeTower(c, r, typeKey) {
     if (!canPlace(c, r)) return null;
@@ -825,6 +860,12 @@
     if (hoverPlaceable) {
       drawSprite(spriteCache[shopDef.sprite], state.hover.c * TILE + TILE / 2, state.hover.r * TILE + TILE / 2, 1, affordable ? 0.55 : 0.25);
     }
+    // 터치 미리보기 중인 칸은 노란 테두리를 깜빡여서 "여기"라고 알려줌
+    if (state.pending) {
+      ctx.strokeStyle = Math.floor(state.time * 4) % 2 === 0 || !state.started ? '#ffd54f' : '#fff3b0';
+      ctx.lineWidth = 3;
+      ctx.strokeRect(state.pending.c * TILE + 2, state.pending.r * TILE + 2, TILE - 4, TILE - 4);
+    }
 
     if (state.hitFlash > 0) {
       ctx.fillStyle = 'rgba(255,0,0,' + ((state.hitFlash / 0.4) * 0.35) + ')';
@@ -876,7 +917,7 @@
       const text = document.createElement('div');
       text.className = 'cardText';
       text.innerHTML = '<b>' + s0.name + '</b><span class="badge ' + key + '">' + elementLabel(type.element) + '</span> <span class="key">[' + type.key + ']</span><br>'
-        + '<span class="cost">' + s0.cost + '골드</span> · ' + type.desc;
+        + '<span class="cost">' + s0.cost + '골드</span><span class="sep"> · </span><span class="desc">' + type.desc + '</span>';
       btn.appendChild(icon);
       btn.appendChild(text);
       btn.addEventListener('click', () => { state.shopType = key; refreshShop(); });
@@ -890,6 +931,7 @@
       el.classList.toggle('selected', state.shopType === key);
       el.querySelector('.cost').classList.toggle('poor', !canAfford(key));
     }
+    updatePlaceBar();
   }
 
   let lastInfoKey = '';
@@ -931,27 +973,54 @@
     const y = (ev.clientY - rect.top) * canvas.height / rect.height;
     return { c: Math.floor(x / TILE), r: Math.floor(y / TILE) };
   }
-  canvas.addEventListener('mousemove', (ev) => {
+  // 마우스는 올려두면 미리보기, 손가락(터치)은 움직여도 스크롤일 수 있으니 미리보기를 바꾸지 않음
+  canvas.addEventListener('pointermove', (ev) => {
+    if (ev.pointerType === 'touch' || state.pending) return;
     const t = tileFromEvent(ev);
     state.hover = inBoard(t.c, t.r) ? t : null;
   });
-  canvas.addEventListener('mouseleave', () => { state.hover = null; });
-  canvas.addEventListener('click', (ev) => {
-    if (inputLocked()) return;
-    const t = tileFromEvent(ev);
-    if (!inBoard(t.c, t.r)) return;
+  canvas.addEventListener('pointerleave', () => { if (!state.pending) state.hover = null; });
+
+  // 누르기 시작한 위치를 기억해서, 많이 움직였으면(스크롤/드래그) 탭으로 치지 않음
+  let pressStart = null;
+  canvas.addEventListener('pointerdown', (ev) => { pressStart = { x: ev.clientX, y: ev.clientY }; });
+  canvas.addEventListener('pointercancel', () => { pressStart = null; });
+  canvas.addEventListener('pointerup', (ev) => {
+    const start = pressStart;
+    pressStart = null;
+    if (!start || ev.button !== 0) return;
+    if (Math.hypot(ev.clientX - start.x, ev.clientY - start.y) > 12) return;
+    handleTap(tileFromEvent(ev), ev.pointerType === 'touch');
+  });
+
+  function handleTap(t, isTouch) {
+    if (inputLocked() || !inBoard(t.c, t.r)) return;
     const existing = towerAt(t.c, t.r);
     if (existing) {
       selectTower(state.selected === existing ? null : existing);
       return;
     }
-    if (canPlace(t.c, t.r)) {
-      if (placeTower(t.c, t.r, state.shopType)) selectTower(null);
-    } else {
+    if (!canPlace(t.c, t.r)) {
       showNotice('길 위에는 타워를 놓을 수 없어요');
       Sound.play('error');
+      clearPending();
+      return;
     }
-  });
+    if (!isTouch) { // 마우스: 바로 심기
+      if (placeTower(t.c, t.r, state.shopType)) selectTower(null);
+      return;
+    }
+    // 터치: 한 번 누르면 미리보기, 같은 곳을 다시 누르면 심기
+    if (state.pending && state.pending.c === t.c && state.pending.r === t.r) {
+      confirmPending();
+      return;
+    }
+    selectTower(null);
+    setPending(t.c, t.r);
+    showNotice('같은 곳을 한 번 더 누르거나 [심기]를 누르면 심어요', 2);
+  }
+  ui.btnPlaceOk.addEventListener('click', () => { if (!inputLocked()) confirmPending(); });
+  ui.btnPlaceCancel.addEventListener('click', () => clearPending());
   canvas.addEventListener('contextmenu', (ev) => {
     ev.preventDefault();
     if (inputLocked()) return;
@@ -984,6 +1053,14 @@
     Sound.setMuted(!Sound.isMuted());
     updateMuteLabel();
   });
+  // 전체화면 (안드로이드 크롬 등에서 동작. 아이폰 사파리는 지원하지 않아 버튼을 숨김)
+  if (!document.documentElement.requestFullscreen) ui.btnFull.style.display = 'none';
+  ui.btnFull.addEventListener('click', () => {
+    if (document.fullscreenElement) { document.exitFullscreen().catch(() => {}); return; }
+    document.documentElement.requestFullscreen().then(() => {
+      if (screen.orientation && screen.orientation.lock) screen.orientation.lock('landscape').catch(() => {});
+    }).catch(() => {});
+  });
   ui.btnSpeed.addEventListener('click', () => {
     state.speed = state.speed >= 3 ? 1 : state.speed + 1;
     updateHud();
@@ -992,6 +1069,7 @@
     resetState();
     Sound.stopMusic();
     ui.overlay.classList.add('hidden');
+    ui.placeBar.classList.add('hidden');
     selectTower(null);
     updateHud();
   });
