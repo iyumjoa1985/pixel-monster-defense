@@ -102,6 +102,7 @@ const Sound = (() => {
     shoot_water: () => tone({ type: 'sine', freq: 900, to: 300, dur: 0.12, vol: 0.16 }),
     hit:         () => noise({ dur: 0.03, vol: 0.07, filter: 'bandpass', cutoff: 1500 }),
     kill:        () => { tone({ type: 'square', freq: 600, to: 150, dur: 0.16, vol: 0.2 }); noise({ dur: 0.1, vol: 0.12 }); },
+    boom:        () => { tone({ type: 'sine', freq: 120, to: 35, dur: 0.3, vol: 0.5 }); noise({ dur: 0.25, vol: 0.2, filter: 'lowpass', cutoff: 800 }); },
     place:       () => melody(['C5', 'G5'], 0.08, 'triangle', 0.3),
     evolve:      () => { melody(['C5', 'E5', 'G5', 'C6'], 0.09, 'square', 0.22); noise({ dur: 0.3, vol: 0.08, filter: 'highpass', cutoff: 5000, at: 0.1 }); },
     sell:        () => melody(['G5', 'C5'], 0.09, 'triangle', 0.25),
@@ -125,7 +126,7 @@ const Sound = (() => {
     },
   };
   // 너무 자주 울리면 시끄러운 소리들: 최소 간격(초)
-  const MIN_GAP = { shoot: 0.05, hit: 0.04 };
+  const MIN_GAP = { shoot: 0.05, hit: 0.04, boom: 0.15 };
 
   function play(name) {
     stats[name] = (stats[name] || 0) + 1;

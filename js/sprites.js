@@ -333,6 +333,124 @@ const SPRITES = {
       '...oooooo...',
     ],
   },
+
+  // ===================== 얼음 타워(물): 눈송이 → 서리토끼 → 빙하곰 (맞은 적을 느리게) =====================
+
+  nunsongi: {
+    name: '눈송이',
+    palette: { o: '#2a5a8a', W: '#f4fbff', B: '#bfe9ff', u: '#8fd8ff', w: '#ffffff', k: '#1a1a1a', p: '#ffb3c6', m: '#7a9cc6', M: '#a9c4e8' },
+    rows: [
+      '.....oo.....',
+      '..o.oWWo.o..',
+      '...oWWWWo...',
+      '.ooWWBBWWoo.',
+      '.oWWBuuBWWo.',
+      'oWBwkBBwkBWo',
+      'oWpBBBBBBpWo',
+      '.oWBBkkBBWo.',
+      '.ooWWWWWWoo.',
+      '..oommmmoo..',
+      '..ommMMmmo..',
+      '...oooooo...',
+    ],
+  },
+
+  seoritokki: {
+    name: '서리토끼',
+    palette: { o: '#2a5a8a', W: '#eef8ff', B: '#bfe9ff', w: '#ffffff', k: '#1a1a1a', p: '#ffb3c6', m: '#7a9cc6', M: '#a9c4e8' },
+    rows: [
+      '..oo....oo..',
+      '..oBo..oBo..',
+      '..oBo..oBo..',
+      '.ooWWooWWoo.',
+      '.oWWWWWWWWo.',
+      'oWWwkWWwkWWo',
+      'oWpWWWWWWpWo',
+      'oWWWWkkWWWWo',
+      '.oWWWWWWWWo.',
+      '..oommmmoo..',
+      '..ommMMmmo..',
+      '...oooooo...',
+    ],
+  },
+
+  binghagom: {
+    name: '빙하곰',
+    palette: { o: '#2a5a8a', W: '#eef8ff', B: '#bfe9ff', w: '#ffffff', k: '#1a1a1a', m: '#7a9cc6', M: '#a9c4e8' },
+    rows: [
+      '............',
+      '.oo......oo.',
+      'oBBo....oBBo',
+      'oBBooooooBBo',
+      '.oWWWWWWWWo.',
+      'oWWwkWWwkWWo',
+      'oWWWWBBWWWWo',
+      'oWWWBkkBWWWo',
+      '.oWWWWWWWWo.',
+      '..oommmmoo..',
+      '..ommMMmmo..',
+      '...oooooo...',
+    ],
+  },
+
+  // ===================== 폭탄 타워(불): 폭죽이 → 불꽃놀이 → 화산이 (주변을 한꺼번에) =====================
+
+  pokjugi: {
+    name: '폭죽이',
+    palette: { o: '#5a1a0a', R: '#e53935', Y: '#ffe14d', y: '#ffe14d', w: '#ffffff', k: '#1a1a1a' },
+    rows: [
+      '......y.....',
+      '.....yoy....',
+      '......o.....',
+      '...ooooooo..',
+      '..oRRRRRRRo.',
+      '..oRwkRwkRo.',
+      '..oRRRRRRRo.',
+      '..oYYYYYYYo.',
+      '..oRRRkkRRo.',
+      '..oRRRRRRRo.',
+      '..oYYYYYYYo.',
+      '..oooooooo..',
+    ],
+  },
+
+  bulkkotnori: {
+    name: '불꽃놀이',
+    palette: { o: '#5a1a0a', R: '#e53935', Y: '#ffe14d', y: '#ffe14d', P: '#ff6fa3', u: '#5ec8ff', w: '#ffffff', k: '#1a1a1a' },
+    rows: [
+      '..P.y.u.y.P.',
+      '...y.P.P.y..',
+      '.....oo.....',
+      '...ooooooo..',
+      '..oRRRRRRRo.',
+      '..oRwkRwkRo.',
+      '..oRRRRRRRo.',
+      '..oYYYYYYYo.',
+      '..oRRRkkRRo.',
+      '..oRRRRRRRo.',
+      '..oYYYYYYYo.',
+      '..oooooooo..',
+    ],
+  },
+
+  hwasani: {
+    name: '화산이',
+    palette: { o: '#2a1a1a', D: '#6b4a3a', r: '#ff4d1f', y: '#ffe14d', w: '#ffffff', k: '#1a1a1a' },
+    rows: [
+      '.....rr.....',
+      '....oryro...',
+      '...oDrrrDo..',
+      '...oDDDDDo..',
+      '..oDDrDrDDo.',
+      '..oDwkDwkDDo',
+      '.oDDDrDDrDDo',
+      '.oDDDDkkDDDo',
+      'oDDrDDDDrDDo',
+      'oDDDDDDDDDDo',
+      'oooooooooooo',
+      '............',
+    ],
+  },
 };
 
 // 도감 데이터를 실제 그림(캔버스)으로 바꿔줍니다. scale배 만큼 키웁니다.

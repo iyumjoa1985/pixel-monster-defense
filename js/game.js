@@ -194,8 +194,26 @@
         { name: '파도리', sprite: 'padori',    cost: 160, range: 180, damage: 48, cooldown: 1.2, bulletSpeed: 280, bulletColor: '#bfe9ff' },
       ],
     },
+    // slow: 맞은 적이 duration초 동안 factor배 속도로 느려짐
+    ice: {
+      element: 'water', key: '4', desc: '맞은 적을 느리게',
+      stages: [
+        { name: '눈송이',   sprite: 'nunsongi',   cost: 80,  range: 110, damage: 5,  cooldown: 0.9,  bulletSpeed: 260, bulletColor: '#eef8ff', slow: { factor: 0.6, duration: 1.5 } },
+        { name: '서리토끼', sprite: 'seoritokki', cost: 90,  range: 120, damage: 9,  cooldown: 0.85, bulletSpeed: 280, bulletColor: '#eef8ff', slow: { factor: 0.5, duration: 1.8 } },
+        { name: '빙하곰',   sprite: 'binghagom',  cost: 140, range: 135, damage: 15, cooldown: 0.8,  bulletSpeed: 300, bulletColor: '#bfe9ff', slow: { factor: 0.4, duration: 2.0 } },
+      ],
+    },
+    // splash: 맞은 자리 주변(픽셀)의 적들도 함께 피해 (주변은 70%)
+    bomb: {
+      element: 'fire', key: '5', desc: '여러 마리를 한 번에',
+      stages: [
+        { name: '폭죽이',   sprite: 'pokjugi',     cost: 100, range: 120, damage: 14, cooldown: 1.6, bulletSpeed: 200, bulletColor: '#ffe14d', splash: 45 },
+        { name: '불꽃놀이', sprite: 'bulkkotnori', cost: 110, range: 130, damage: 24, cooldown: 1.5, bulletSpeed: 210, bulletColor: '#ff6fa3', splash: 55 },
+        { name: '화산이',   sprite: 'hwasani',     cost: 170, range: 140, damage: 40, cooldown: 1.4, bulletSpeed: 220, bulletColor: '#ff4d1f', splash: 65 },
+      ],
+    },
   };
-  const TOWER_ORDER = ['grass', 'fire', 'water'];
+  const TOWER_ORDER = ['grass', 'fire', 'water', 'ice', 'bomb'];
 
   const spriteCache = {};
   for (const key of Object.keys(SPRITES)) spriteCache[key] = buildSprite(SPRITES[key], SPRITE_SCALE);
@@ -217,6 +235,8 @@
       this.dead = false;
       this.traveled = 0;
       this.effectTimer = 0;   // "굉장!" 글씨가 너무 자주 뜨지 않게 하는 시계
+      this.slowTimer = 0;     // 얼음 타워에 맞아 느려진 남은 시간
+      this.slowFactor = 1;    // 느려진 정도 (0.6이면 60% 속도)
       this.t = Math.random() * 10;
       this.name = def.name;
       this.boss = !!def.boss;
@@ -224,8 +244,16 @@
       this.id = nextId++;
     }
 
+    applySlow(factor, duration) {
+      if (this.boss) factor = (1 + factor) / 2; // 보스는 절반만 느려짐
+      if (this.slowTimer <= 0 || factor < this.slowFactor) this.slowFactor = factor;
+      this.slowTimer = Math.max(this.slowTimer, duration);
+      state.stats.slows += 1;
+    }
+
     update(dt) {
-      let remaining = this.speed * dt;
+      if (this.slowTimer > 0) this.slowTimer -= dt;
+      let remaining = this.speed * dt * (this.slowTimer > 0 ? this.slowFactor : 1);
       const budget = remaining;
       while (remaining > 0 && this.wp < WAYPOINTS.length) {
         const target = WAYPOINTS[this.wp];
@@ -320,7 +348,20 @@
       this.speed = tower.def.bulletSpeed;
       this.damage = tower.def.damage;
       this.color = tower.def.bulletColor;
+      this.slow = tower.def.slow || null;
+      this.splash = tower.def.splash || 0;
       this.done = false;
+    }
+
+    hitOne(t, ratio) {
+      const mult = typeMultiplier(this.element, t.element);
+      t.takeDamage(Math.max(1, Math.round(this.damage * mult * ratio)));
+      if (this.slow && !t.dead) t.applySlow(this.slow.factor, this.slow.duration);
+      if (mult !== 1 && t.effectTimer <= 0 && !t.dead) {
+        spawnFloater(t.x, t.y - 28, mult > 1 ? '굉장!' : '별로...', mult > 1 ? '#ffd54f' : '#b0bec5');
+        t.effectTimer = 0.7;
+      }
+      return mult;
     }
 
     update(dt) {
@@ -331,14 +372,22 @@
       const dist = Math.hypot(dx, dy);
       const step = this.speed * dt;
       if (dist <= step + 4) {
-        const mult = typeMultiplier(this.element, t.element);
         Sound.play('hit');
-        t.takeDamage(Math.round(this.damage * mult));
-        spawnParticles(t.x, t.y, this.color, mult > 1 ? 7 : 4, mult > 1 ? 90 : 60);
-        if (mult !== 1 && t.effectTimer <= 0 && !t.dead) {
-          spawnFloater(t.x, t.y - 28, mult > 1 ? '굉장!' : '별로...', mult > 1 ? '#ffd54f' : '#b0bec5');
-          t.effectTimer = 0.7;
+        const hx = t.x, hy = t.y;
+        const mult = this.hitOne(t, 1);
+        spawnParticles(hx, hy, this.color, mult > 1 ? 7 : 4, mult > 1 ? 90 : 60);
+        if (this.splash > 0) { // 폭탄: 주변 적들도 함께 (70% 피해)
+          let extra = 0;
+          for (const e of state.enemies) {
+            if (e === t || e.dead || e.reached) continue;
+            if (Math.hypot(e.x - hx, e.y - hy) <= this.splash) { this.hitOne(e, 0.7); extra += 1; }
+          }
+          if (extra > 0) state.stats.splashHits += extra;
+          spawnParticles(hx, hy, '#ffb347', 14, 140);
+          spawnParticles(hx, hy, '#ff4d1f', 8, 100);
+          Sound.play('boom');
         }
+        if (this.slow) spawnParticles(hx, hy, '#bfe9ff', 6, 50);
         this.done = true;
         return;
       }
@@ -407,6 +456,7 @@
     state.floaters = [];
     state.kills = 0;
     state.gold = diff().gold;
+    state.stats = { slows: 0, splashHits: 0 }; // 얼음·폭탄 효과가 몇 번 일어났는지 (기록용)
     state.spawned = {};                                   // 지금까지 나온 몬스터 수 (기록용)
     for (const k of Object.keys(ENEMY_TYPES)) state.spawned[k] = 0;
     state.victory = false;    // 20웨이브를 막아냈는지
@@ -830,9 +880,18 @@
 
   function drawEnemy(e) {
     const img = spriteCache[ENEMY_TYPES[e.type].sprite];
-    const bob = Math.round(Math.sin(e.t * (e.boss ? 6 : 10)) * 2);
+    const slowed = e.slowTimer > 0;
+    const bob = Math.round(Math.sin(e.t * (e.boss ? 6 : (slowed ? 4 : 10))) * 2);
     drawShadow(e.x, e.y, e.boss ? 40 : 24, e.boss ? 19 : 13);
     drawSprite(img, e.x, e.y + bob, e.dir);
+    if (slowed) { // 느려진 적은 파랗게 얼어 보이고 머리 위에 얼음 조각
+      ctx.fillStyle = 'rgba(120,200,255,0.35)';
+      ctx.fillRect(Math.round(e.x - img.width / 2), Math.round(e.y - img.height / 2 + bob), img.width, img.height);
+      ctx.fillStyle = '#eef8ff';
+      ctx.fillRect(Math.round(e.x - 2), Math.round(e.y - img.height / 2 + bob - 8), 4, 4);
+      ctx.fillRect(Math.round(e.x - 8), Math.round(e.y - img.height / 2 + bob - 5), 3, 3);
+      ctx.fillRect(Math.round(e.x + 5), Math.round(e.y - img.height / 2 + bob - 5), 3, 3);
+    }
     if (e.hp < e.maxHp) {
       const bw = e.boss ? 40 : 24;
       const bx = Math.round(e.x - bw / 2 - 1), by = Math.round(e.y - (e.boss ? 32 : 24) + bob);
@@ -1077,12 +1136,14 @@
     g.clearRect(0, 0, 36, 36);
     g.drawImage(spriteCache[t.def.sprite], 0, 0);
     const d = t.def;
+    const special = (s) => (s.slow ? ' · 맞은 적 ' + Math.round((1 - s.slow.factor) * 100) + '% 느려짐(' + s.slow.duration + '초)' : '')
+      + (s.splash ? ' · 주변 ' + (s.splash / TILE).toFixed(1) + '칸 함께 피해' : '');
     let html = '<b>' + d.name + '</b> (' + (t.stage + 1) + '단계) <span class="badge ' + t.element + '">' + elementLabel(t.element) + '</span>'
-      + ' · 사거리 ' + (d.range / TILE) + '칸 · 공격력 ' + d.damage + ' · ' + d.cooldown + '초마다 발사'
+      + ' · 사거리 ' + (d.range / TILE) + '칸 · 공격력 ' + d.damage + ' · ' + d.cooldown + '초마다 발사' + special(d)
       + (state.role !== 'solo' ? (t.owner === 'guest' ? ' · 🩷친구가 심음' : ' · 💙방장이 심음') : '');
     const next = t.nextStage;
     if (next) {
-      html += '<br>진화하면 → <b>' + next.name + '</b>: 사거리 ' + (next.range / TILE) + '칸 · 공격력 ' + next.damage + ' · ' + next.cooldown + '초마다 발사';
+      html += '<br>진화하면 → <b>' + next.name + '</b>: 사거리 ' + (next.range / TILE) + '칸 · 공격력 ' + next.damage + ' · ' + next.cooldown + '초마다 발사' + special(next);
       ui.btnEvolve.textContent = '진화 (' + next.cost + '골드)';
       ui.btnEvolve.disabled = state.gold < next.cost;
     } else {
@@ -1192,6 +1253,8 @@
     if (e.code === 'Digit1') { state.shopType = 'grass'; refreshShop(); }
     if (e.code === 'Digit2') { state.shopType = 'fire'; refreshShop(); }
     if (e.code === 'Digit3') { state.shopType = 'water'; refreshShop(); }
+    if (e.code === 'Digit4') { state.shopType = 'ice'; refreshShop(); }
+    if (e.code === 'Digit5') { state.shopType = 'bomb'; refreshShop(); }
     if (e.code === 'KeyE' && state.selected && !inputLocked()) act('evolve', { id: state.selected.id });
     if (e.code === 'Delete' && state.selected && !inputLocked()) act('sell', { id: state.selected.id });
   });
@@ -1222,7 +1285,7 @@
       l: state.lives, w: state.wave, g: state.gold, k: state.kills, st: state.started, wa: state.waveActive,
       bt: Math.round(state.breakTimer * 10) / 10, p: state.paused, sp: state.speed, go: state.gameOver, v: state.victory,
       en: state.endless, q: state.spawnQueue.length,
-      e: state.enemies.map((e) => [e.id, e.type, Math.round(e.x), Math.round(e.y), e.dir, e.hp, e.maxHp]),
+      e: state.enemies.map((e) => [e.id, e.type, Math.round(e.x), Math.round(e.y), e.dir, e.hp, e.maxHp, e.slowTimer > 0 ? 1 : 0]),
       tw: state.towers.map((t) => [t.id, t.c, t.r, t.typeKey, t.stage, t.dir, t.recoil > 0 ? 1 : 0, t.owner, t.invested]),
       b: state.bullets.map((b) => [Math.round(b.x), Math.round(b.y), b.element]),
     };
@@ -1237,13 +1300,14 @@
     state.spawnQueue = new Array(s.q);
 
     const seen = new Set();
-    for (const [id, type, x, y, dir, hp, maxHp] of s.e) {
+    for (const [id, type, x, y, dir, hp, maxHp, slowed] of s.e) {
       let e = guestEnemies.get(id);
       if (!e) {
         const def = ENEMY_TYPES[type];
-        e = { id, type, element: def.element, name: def.name, boss: !!def.boss, x, y, tx: x, ty: y, dir, hp, maxHp, t: Math.random() * 10, dead: false, reached: false };
+        e = { id, type, element: def.element, name: def.name, boss: !!def.boss, x, y, tx: x, ty: y, dir, hp, maxHp, t: Math.random() * 10, dead: false, reached: false, slowTimer: 0 };
         guestEnemies.set(id, e);
       } else { e.tx = x; e.ty = y; e.dir = dir; e.hp = hp; e.maxHp = maxHp; }
+      e.slowTimer = slowed ? 1 : 0;
       seen.add(id);
     }
     for (const id of Array.from(guestEnemies.keys())) if (!seen.has(id)) guestEnemies.delete(id);

@@ -58,7 +58,10 @@ function check(ok, msg) { console.log((ok ? '  [통과] ' : '  [실패] ') + msg
 // 게임판의 (가로칸, 세로칸) 한가운데를 실제 마우스로 클릭
 async function clickTile(page, c, r, button) {
   const pt = await page.evaluate((c, r) => {
-    const rect = document.getElementById('game').getBoundingClientRect();
+    const game = document.getElementById('game');
+    const rect0 = game.getBoundingClientRect();
+    if (rect0.bottom > window.innerHeight || rect0.top < 0) game.scrollIntoView({ block: 'center' }); // 게임판이 화면 밖이면 보이게 스크롤
+    const rect = game.getBoundingClientRect();
     return { x: rect.left + (c * 40 + 20) * rect.width / 640, y: rect.top + (r * 40 + 20) * rect.height / 480 };
   }, c, r);
   await page.mouse.click(pt.x, pt.y, { button: button || 'left' });
@@ -260,6 +263,57 @@ async function clickTile(page, c, r, button) {
     await browserB.close();
   }
 
+  // ===== 새 타워(얼음·폭탄) 테스트 =====
+  console.log('[새 타워]');
+  {
+    const n = await browser.newPage();
+    await n.setViewport({ width: 1000, height: 1000 });
+    const nerr = [];
+    n.on('pageerror', (e) => nerr.push(e.message));
+    await n.goto(URL, { waitUntil: 'load' });
+    await n.evaluate(() => localStorage.clear());
+    await n.click('.diff[data-diff="hard"]');
+    const cards = await n.$$eval('#cards .card', (els) => els.map((e) => e.dataset.type));
+    check(cards.join(',') === 'grass,fire,water,ice,bomb', '상점 카드 5장 (풀·불·물·얼음·폭탄)');
+    const tr = await n.evaluate(() => ({
+      ice: __rules.TOWER_TYPES.ice.stages.map((s) => [s.name, s.cost, s.slow.factor, s.slow.duration]),
+      bomb: __rules.TOWER_TYPES.bomb.stages.map((s) => [s.name, s.cost, s.splash]),
+    }));
+    check(tr.ice[0][0] === '눈송이' && tr.ice[2][0] === '빙하곰' && tr.ice[0][2] === 0.6 && tr.bomb[0][0] === '폭죽이' && tr.bomb[2][0] === '화산이' && tr.bomb[0][2] === 45, '얼음 3단계(눈송이→서리토끼→빙하곰, 60% 속도) / 폭탄 3단계(폭죽이→불꽃놀이→화산이, 범위 45px)');
+    await n.keyboard.press('Digit4');
+    let ns = await n.evaluate(() => ({ shop: __game.shopType, sel: document.querySelector('.card.selected').dataset.type }));
+    check(ns.shop === 'ice' && ns.sel === 'ice', '숫자키 4 → 얼음 타워(눈송이) 선택');
+    await n.evaluate(() => { __game.gold = 1000; });
+    await clickTile(n, 4, 4);   // 눈송이: 왼쪽 세로 길을 느리게
+    await n.keyboard.press('Digit5');
+    await clickTile(n, 1, 4);   // 폭죽이: 느려져서 뭉친 적들을 한꺼번에
+    ns = await n.evaluate(() => ({ towers: __game.towers.map((t) => t.def.name), gold: __game.gold }));
+    check(ns.towers.join(',') === '눈송이,폭죽이' && ns.gold === 820, '눈송이(80골드)와 폭죽이(100골드)를 심음 (골드 1000 → 820)');
+    await clickTile(n, 4, 4);
+    const info = await n.$eval('#infoText', (e) => e.textContent);
+    check(info.indexOf('40% 느려짐') > 0, '정보창에 "맞은 적 40% 느려짐(1.5초)" 표시');
+    await clickTile(n, 1, 4);
+    const info2 = await n.$eval('#infoText', (e) => e.textContent);
+    check(info2.indexOf('함께 피해') > 0, '정보창에 "주변 1.1칸 함께 피해" 표시');
+    await clickTile(n, 1, 4);
+    await n.click('#btnStart');
+    await n.click('#btnSpeed'); await n.click('#btnSpeed');
+    let slowSeen = null;
+    for (let i = 0; i < 60; i++) {
+      await sleep(250);
+      slowSeen = await n.evaluate(() => { const e = __game.enemies.find((x) => x.slowTimer > 0); return e ? { factor: e.slowFactor, timer: e.slowTimer } : null; });
+      if (slowSeen) break;
+    }
+    check(slowSeen && slowSeen.factor === 0.6 && slowSeen.timer > 0, '얼음에 맞은 몬스터가 느려짐 (속도 60%)');
+    await n.screenshot({ path: path.join(__dirname, 'shot_newtowers.png') });
+    let splashOk = false;
+    try { await n.waitForFunction(() => __game.stats.splashHits > 0, { timeout: 40000 }); splashOk = true; } catch (e) { /* 실패 */ }
+    const st = await n.evaluate(() => ({ slows: __game.stats.slows, splash: __game.stats.splashHits, boom: Sound.stats.boom || 0, kills: __game.kills }));
+    check(splashOk && st.boom > 0, '폭탄이 주변 몬스터를 함께 맞춤 (둔화 ' + st.slows + '회, 범위 추가 피해 ' + st.splash + '회, 폭발음 ' + st.boom + '회)');
+    check(nerr.length === 0, '새 타워 사용 중 자바스크립트 오류 없음' + (nerr.length ? ': ' + nerr.join(' | ') : ''));
+    await n.close();
+  }
+
   // ===== 컴퓨터(마우스) 테스트 =====
   console.log('[컴퓨터 화면]');
   const page = await browser.newPage();
@@ -339,7 +393,7 @@ async function clickTile(page, c, r, button) {
   s = await snap(page);
   check(s.towers.length === 2 && s.towers[0].name === '불씨' && s.towers[1].type === 'grass' && s.gold === 0, '불씨와 새싹이를 심어 골드 120 → 0');
   check(s.sound.stats.place === 2, '심을 때마다 심기 소리 (2번)');
-  check(s.hud.poorCards.length === 3, '골드 0이면 카드 3장 가격이 전부 빨갛게');
+  check(s.hud.poorCards.length === 5, '골드 0이면 카드 5장 가격이 전부 빨갛게');
   await clickTile(page, 10, 4);
   await clickTile(page, 1, 2);
   s = await snap(page);
@@ -445,7 +499,7 @@ async function clickTile(page, c, r, button) {
     await clickTile(page, spots[i][0], spots[i][1]); // 고르기 해제
   }
   s = await snap(page);
-  check(s.towers.length === 8 && s.towers.every((t) => t.stage === 2) && s.gold === 5000 - 2170, '승리 준비: 최종 진화 타워 8개 (골드 5000 → 2830)');
+  check(s.towers.length === 8 && s.towers.every((t) => t.stage === 2) && s.gold === 5000 - 2170, '승리 준비: 최종 진화 타워 8개 (골드 5000 → 2830) — 실제: 타워 ' + s.towers.length + '개, 단계 ' + s.towers.map((t) => t.stage).join('') + ', 골드 ' + s.gold);
   await page.evaluate(() => { __game.wave = 19; __game.speed = 10; });
   await page.click('#btnStart');
   await page.waitForFunction(() => __game.victory || __game.gameOver, { timeout: 180000 });
